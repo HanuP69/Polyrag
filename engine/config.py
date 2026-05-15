@@ -8,13 +8,109 @@ TESTING = False → use Groq API for LLM calls
 # ──────────────────────────── Global Mode ────────────────────────────
 TESTING = True
 
-# ──────────────────────────── Ollama (testing) ───────────────────────
+# ──────────────────────────── Ollama (local) ─────────────────────────
 OLLAMA_BASE_URL = "http://localhost:11434"
-OLLAMA_MODEL = "qwen2.5:7b-instruct-q4_K_M"
+OLLAMA_MODEL = "llama3.2:3b"
+OLLAMA_VISION_MODEL = "llava:latest"
 
-# ──────────────────────────── Groq (production) ──────────────────────
-GROQ_API_KEY = ""          # set via env var in production
+# ──────────────────────────── Groq (cloud) ───────────────────────────
+GROQ_API_KEY = "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"
 GROQ_MODEL = "llama-3.1-70b-versatile"
+
+# ──────────────────────────── Gemini (cloud) ─────────────────────────
+GEMINI_API_KEY = "AIzaSyBaspWmZH7b6VX3chGfwngkXY5pwMUDnBQ"
+GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
+
+# ──────────────────────────── Model Registry ─────────────────────────
+MODEL_REGISTRY = {
+    # ── Local (Ollama) ──
+    "llama3.2:3b": {
+        "provider": "ollama",
+        "api_name": "llama3.2:3b",
+        "display": "Llama 3.2 3B",
+        "group": "Local (Ollama)",
+        "caps": ["text"],
+    },
+    "gemma3:4b": {
+        "provider": "ollama",
+        "api_name": "gemma3:4b",
+        "display": "Gemma 3 4B",
+        "group": "Local (Ollama)",
+        "caps": ["text"],
+    },
+    "gemma3:12b": {
+        "provider": "ollama",
+        "api_name": "gemma3:12b",
+        "display": "Gemma 3 12B",
+        "group": "Local (Ollama)",
+        "caps": ["text"],
+    },
+    "llava:latest": {
+        "provider": "ollama",
+        "api_name": "llava:latest",
+        "display": "LLaVA (Vision)",
+        "group": "Local (Ollama)",
+        "caps": ["vision"],
+    },
+    # ── Cloud (Groq) ──
+    "llama-3.1-70b-versatile": {
+        "provider": "groq",
+        "api_name": "llama-3.1-70b-versatile",
+        "display": "Llama 3.1 70B",
+        "group": "Cloud (Groq)",
+        "caps": ["text"],
+    },
+    "gemma2-9b-it": {
+        "provider": "groq",
+        "api_name": "gemma2-9b-it",
+        "display": "Gemma 2 9B",
+        "group": "Cloud (Groq)",
+        "caps": ["text"],
+    },
+    "mixtral-8x7b-32768": {
+        "provider": "groq",
+        "api_name": "mixtral-8x7b-32768",
+        "display": "Mixtral 8x7B",
+        "group": "Cloud (Groq)",
+        "caps": ["text"],
+    },
+    # ── Cloud (Gemini) ── fastest first
+    "gemini-2.5-flash": {
+        "provider": "gemini",
+        "api_name": "gemini-2.5-flash",
+        "display": "Gemini 2.5 Flash ⚡",
+        "group": "Cloud (Gemini)",
+        "caps": ["text", "vision"],
+    },
+    "gemini-2.5-pro": {
+        "provider": "gemini",
+        "api_name": "gemini-2.5-pro",
+        "display": "Gemini 2.5 Pro",
+        "group": "Cloud (Gemini)",
+        "caps": ["text", "vision"],
+    },
+    "gemini-2.0-flash": {
+        "provider": "gemini",
+        "api_name": "gemini-2.0-flash",
+        "display": "Gemini 2.0 Flash",
+        "group": "Cloud (Gemini)",
+        "caps": ["text", "vision"],
+    },
+    "gemma-4-27b": {
+        "provider": "gemini",
+        "api_name": "gemma-4-26b-a4b-it",
+        "display": "Gemma 4 27B (MoE)",
+        "group": "Cloud (Gemini)",
+        "caps": ["text", "vision"],
+    },
+    "gemma-4-31b": {
+        "provider": "gemini",
+        "api_name": "gemma-4-31b-it",
+        "display": "Gemma 4 31B (Dense)",
+        "group": "Cloud (Gemini)",
+        "caps": ["text", "vision"],
+    },
+}
 
 # ──────────────────────────── Embedding ──────────────────────────────
 EMBEDDING_MODEL = "BAAI/bge-m3"
@@ -22,10 +118,10 @@ EMBEDDING_DIM = 1024       # BGE-M3 actually outputs 1024-dim
 
 # ──────────────────────────── Database ───────────────────────────────
 # For testing: local PostgreSQL. For prod: Supabase.
-DATABASE_URL = "postgresql://postgres:tan69@localhost:5432/polyrag"
+DATABASE_URL = "postgresql://postgres:tan69@localhost:5433/polyrag"
 
 # ──────────────────────────── Retrieval defaults ─────────────────────
-DEFAULT_TOP_K = 10
+DEFAULT_TOP_K = 30
 GATE_THRESHOLD = 0.4       # experts with score > this are fired
 CHUNK_SIZE = 512            # tokens per chunk
 CHUNK_OVERLAP = 64          # token overlap between chunks

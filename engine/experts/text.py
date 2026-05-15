@@ -55,8 +55,13 @@ class TextExpert(BaseExpert):
         
         doc = fitz.open(file_path)
         chunks = []
+        total_pages = len(doc)
+        print(f"[TextExpert] Parsing {total_pages} pages from {os.path.basename(file_path)}...")
         
-        for page_num in range(len(doc)):
+        for page_num in range(total_pages):
+            if page_num > 0 and page_num % 100 == 0:
+                print(f"[TextExpert] Progress: {page_num}/{total_pages} pages parsed ({len(chunks)} chunks so far)")
+            
             page = doc[page_num]
             
             # Get text blocks with position info
