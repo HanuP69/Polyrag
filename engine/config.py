@@ -4,7 +4,8 @@ PolyRAG global configuration.
 TESTING = True  → use Ollama (local) for all LLM calls
 TESTING = False → use Groq API for LLM calls
 """
-
+from dotenv import load_dotenv
+load_dotenv()
 # ──────────────────────────── Global Mode ────────────────────────────
 TESTING = True
 
@@ -14,11 +15,11 @@ OLLAMA_MODEL = "llama3.2:3b"
 OLLAMA_VISION_MODEL = "llava:latest"
 
 # ──────────────────────────── Groq (cloud) ───────────────────────────
-GROQ_API_KEY = "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"
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = "llama-3.1-70b-versatile"
 
 # ──────────────────────────── Gemini (cloud) ─────────────────────────
-GEMINI_API_KEY = "AIzaSyBaspWmZH7b6VX3chGfwngkXY5pwMUDnBQ"
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 
 # ──────────────────────────── Model Registry ─────────────────────────
