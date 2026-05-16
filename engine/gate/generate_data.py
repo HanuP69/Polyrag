@@ -22,10 +22,11 @@ from engine.config import (
 
 
 PROMPT = """You are a data generator for a query routing classifier.
-I need training data to classify user queries into three retrieval expert categories:
+I need training data to classify user queries into four retrieval expert categories:
 - TEXT: queries about prose, clauses, descriptions, explanations, summaries
 - TABLE: queries about numbers, comparisons, statistics, rows, columns, data
 - IMAGE: queries about diagrams, charts, figures, photos, visual content
+- CODE: queries about source code, logic, variables, functions, classes, and programming implementation
 
 Here are seed examples:
 
@@ -50,12 +51,19 @@ IMAGE queries:
 - "what information is in the pie chart"
 - "describe the system diagram"
 
-Generate exactly 150 diverse queries for EACH category (450 total).
+CODE queries:
+- "where is the authentication middleware defined?"
+- "how does the database connection retry logic work?"
+- "find the function that handles user login"
+- "show me the definition of the QueryRequest class"
+- "what are the parameters for the queryStream function"
+
+Generate exactly 50 diverse queries for EACH category (200 total).
 Make them varied — different domains (legal, finance, medical, engineering, academic).
 Make some ambiguous (could route to multiple experts).
 
 Return ONLY valid JSON in this exact format, no other text:
-{"text": ["query1", "query2", ...], "table": ["query1", "query2", ...], "image": ["query1", "query2", ...]}
+{"text": ["query1", "query2", ...], "table": ["query1", "query2", ...], "image": ["query1", "query2", ...], "code": ["query1", "query2", ...]}
 """
 
 
@@ -104,7 +112,7 @@ def generate_via_groq() -> dict:
             "model": GROQ_MODEL,
             "messages": [{"role": "user", "content": PROMPT}],
             "temperature": 0.8,
-            "max_tokens": 16384,
+            "max_tokens": 8000,
         },
         timeout=120
     )
@@ -121,9 +129,40 @@ def generate_via_groq() -> dict:
     return data
 
 
+def generate_via_gemini() -> dict:
+    """Generate training data using Gemini API."""
+    print(f"[Gate] Generating synthetic data via Gemini...")
+    from engine.config import GEMINI_API_KEY, GEMINI_BASE_URL
+    
+    response = requests.post(
+        f"{GEMINI_BASE_URL}/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}",
+        headers={"Content-Type": "application/json"},
+        json={
+            "contents": [{"parts": [{"text": PROMPT}]}],
+            "generationConfig": {
+                "temperature": 0.8,
+                "maxOutputTokens": 8000,
+                "responseMimeType": "application/json"
+            }
+        },
+        timeout=120
+    )
+    response.raise_for_status()
+    
+    raw = response.json()["candidates"][0]["content"]["parts"][0]["text"]
+    
+    if "```json" in raw:
+        raw = raw.split("```json")[1].split("```")[0]
+    elif "```" in raw:
+        raw = raw.split("```")[1].split("```")[0]
+    
+    data = json.loads(raw.strip())
+    return data
+
+
 def validate_data(data: dict) -> bool:
     """Validate the generated data structure."""
-    required_keys = {"text", "table", "image"}
+    required_keys = {"text", "table", "image", "code"}
     if not required_keys.issubset(data.keys()):
         print(f"[Gate] ERROR: Missing keys. Got {data.keys()}, need {required_keys}")
         return False
@@ -150,14 +189,14 @@ def main():
     if TESTING:
         data = generate_via_ollama()
     else:
-        data = generate_via_groq()
+        data = generate_via_gemini()
     
     # Validate
     if not validate_data(data):
         print("[Gate] Generated data failed validation. Saving anyway for inspection.")
     
     # Report stats
-    for key in ["text", "table", "image"]:
+    for key in ["text", "table", "image", "code"]:
         count = len(data.get(key, []))
         print(f"[Gate]   {key}: {count} queries")
     

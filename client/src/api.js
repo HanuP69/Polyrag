@@ -1,9 +1,20 @@
+import { supabase } from "./supabaseClient";
+
 const API_BASE = "http://localhost:3001";
 
+async function getAuthHeaders(headers = {}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (session?.access_token) {
+    headers["Authorization"] = `Bearer ${session.access_token}`;
+  }
+  return headers;
+}
+
 export async function queryStream(query, orgId = "default", model = "llama3.2:3b", chatHistory = [], onMeta, onToken, onGuard, onDone) {
+  const headers = await getAuthHeaders({ "Content-Type": "application/json" });
   const res = await fetch(`${API_BASE}/api/query`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ query, org_id: orgId, model, chat_history: chatHistory }),
   });
 
@@ -37,19 +48,32 @@ export async function uploadFile(file, orgId = "default") {
   const form = new FormData();
   form.append("file", file);
   form.append("org_id", orgId);
-  const res = await fetch(`${API_BASE}/api/ingest`, { method: "POST", body: form });
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/ingest`, { method: "POST", headers, body: form });
+  return res.json();
+}
+
+export async function uploadGithub(repoUrl, orgId = "default") {
+  const headers = await getAuthHeaders({ "Content-Type": "application/json" });
+  const res = await fetch(`${API_BASE}/api/ingest/github`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ repo_url: repoUrl, org_id: orgId }),
+  });
   return res.json();
 }
 
 export async function getIngestStatus(fileId) {
-  const res = await fetch(`${API_BASE}/api/ingest/${fileId}`);
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/ingest/${fileId}`, { headers });
   return res.json();
 }
 
 export async function submitFeedback(queryLogId, rating, correctExpert = null) {
+  const headers = await getAuthHeaders({ "Content-Type": "application/json" });
   const res = await fetch(`${API_BASE}/api/feedback`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ query_log_id: queryLogId, rating, correct_expert: correctExpert }),
   });
   return res.json();

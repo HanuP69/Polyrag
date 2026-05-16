@@ -5,9 +5,10 @@ TESTING = True  → use Ollama (local) for all LLM calls
 TESTING = False → use Groq API for LLM calls
 """
 from dotenv import load_dotenv
+import os
 load_dotenv()
 # ──────────────────────────── Global Mode ────────────────────────────
-TESTING = True
+TESTING = False
 
 # ──────────────────────────── Ollama (local) ─────────────────────────
 OLLAMA_BASE_URL = "http://localhost:11434"

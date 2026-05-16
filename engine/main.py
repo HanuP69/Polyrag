@@ -92,12 +92,15 @@ async def lifespan(app: FastAPI):
     from engine.experts.text import TextExpert
     from engine.experts.table import TableExpert
     from engine.experts.image import ImageExpert
+    from engine.experts.code import CodeExpert
     _experts["text"] = TextExpert()
     _experts["table"] = TableExpert()
     _experts["image"] = ImageExpert()
+    _experts["code"] = CodeExpert()
     print("[Main] [OK] Text expert registered")
     print("[Main] [OK] Table expert registered")
     print("[Main] [OK] Image expert registered")
+    print("[Main] [OK] Code expert registered")
     
     # Load shared embedding model once (all experts reuse this)
     global _embed_model
@@ -470,6 +473,141 @@ async def ingest_file(
         "status": "indexed",
         "file_id": file_id,
         "file_name": file.filename,
+        "total_chunks": len(all_chunks),
+        "experts_used": experts_used,
+        "latency_ms": elapsed,
+    }
+
+
+@app.post("/ingest/github")
+async def ingest_github(
+    repo_url: str = Form(...),
+    org_id: str = Form("default"),
+):
+    """
+    Download and ingest a public GitHub repository.
+    """
+    import zipfile
+    import tempfile
+    
+    start = time.time()
+    
+    # Ensure org exists
+    try:
+        from engine.db import ensure_org, create_file, update_file_status, upsert_chunks
+        ensure_org(org_id)
+        db_available = True
+    except Exception as e:
+        print(f"[Main] [WARN] DB not available: {e}")
+        db_available = False
+
+    # Standardize URL to get the zip archive
+    # E.g. https://github.com/HanuP69/Polyrag
+    clean_url = repo_url.rstrip("/")
+    parts = clean_url.split("/")
+    if len(parts) >= 2:
+        owner = parts[-2]
+        repo_name = parts[-1]
+        zip_url = f"https://api.github.com/repos/{owner}/{repo_name}/zipball"
+    else:
+        repo_name = clean_url
+        zip_url = clean_url
+    
+    file_id = ""
+    if db_available:
+        file_id = create_file(org_id, f"github_{repo_name}", "zip")
+        update_file_status(file_id, "parsing")
+        
+    try:
+        resp = requests.get(zip_url, timeout=30, allow_redirects=True)
+        resp.raise_for_status()
+    except Exception as e:
+        if db_available:
+            update_file_status(file_id, "failed")
+        raise HTTPException(status_code=400, detail=f"Failed to download repo: {e}")
+        
+    all_chunks = []
+    experts_used = ["code"]
+    
+    from engine.experts.code import CODE_EXTENSIONS
+    
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = os.path.join(tmpdir, "repo.zip")
+        with open(zip_path, "wb") as f:
+            f.write(resp.content)
+            
+        extract_dir = os.path.join(tmpdir, "extracted")
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_dir)
+            
+        # Walk directory and parse
+        for root, _, files in os.walk(extract_dir):
+            for file in files:
+                ext = os.path.splitext(file)[1].lower()
+                if ext in CODE_EXTENSIONS:
+                    file_path = os.path.join(root, file)
+                    # Use relative path for metadata context to look cleaner
+                    rel_path = os.path.relpath(file_path, extract_dir)
+                    
+                    if "code" in _experts:
+                        try:
+                            # Pass rel_path as the second arg so parse() gets it, wait, parse() takes file_path. 
+                            # We'll pass file_path and code expert extracts basename.
+                            chunks = await asyncio.to_thread(_experts["code"].parse, file_path, file_id, org_id)
+                            # Overwrite the basename with the full relative path from the repo root
+                            for c in chunks:
+                                c.metadata["file_path"] = rel_path
+                                # Update content string too
+                                c.content = c.content.replace(os.path.basename(file_path), rel_path)
+                            all_chunks.extend(chunks)
+                        except Exception as e:
+                            print(f"[Ingest] [WARN] Code expert failed on {rel_path}: {e}")
+                            
+    if not all_chunks:
+        if db_available:
+            update_file_status(file_id, "failed")
+        return {"status": "no_chunks", "file_id": file_id}
+        
+    # Phase 2: Embedding
+    if db_available:
+        update_file_status(file_id, "embedding", chunk_count=len(all_chunks))
+        
+    import torch
+    BATCH_SIZE = 8
+    total = len(all_chunks)
+    print(f"[Ingest] Embedding {total} chunks from GitHub repo...")
+    
+    def _do_embed():
+        all_embs = []
+        for i in range(0, total, BATCH_SIZE):
+            batch = [c.content for c in all_chunks[i:i+BATCH_SIZE]]
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            embs = _embed_model.encode(
+                batch, batch_size=BATCH_SIZE,
+                show_progress_bar=False, normalize_embeddings=True
+            )
+            all_embs.extend(embs)
+        return all_embs
+        
+    embeddings = await asyncio.to_thread(_do_embed)
+    for chunk, emb in zip(all_chunks, embeddings):
+        chunk.embedding = emb
+        
+    # Upsert
+    if db_available:
+        upsert_chunks(all_chunks)
+        update_file_status(
+            file_id, "indexed",
+            chunk_count=len(all_chunks),
+            experts_used=experts_used
+        )
+        
+    elapsed = int((time.time() - start) * 1000)
+    return {
+        "status": "indexed",
+        "file_id": file_id,
+        "repo": repo_name,
         "total_chunks": len(all_chunks),
         "experts_used": experts_used,
         "latency_ms": elapsed,

@@ -25,7 +25,7 @@ class Gate:
     Returns per-expert weights for each query.
     """
     
-    EXPERT_NAMES = ["text", "table", "image"]
+    EXPERT_NAMES = ["text", "table", "image", "code"]
     
     def __init__(self):
         self.embed_model = None
@@ -51,7 +51,7 @@ class Gate:
         
         checkpoint = torch.load(GATE_MODEL_PATH, map_location="cpu", weights_only=True)
         input_dim = checkpoint.get("input_dim", EMBEDDING_DIM)
-        num_classes = checkpoint.get("num_classes", 3)
+        num_classes = checkpoint.get("num_classes", 4)
         
         self.classifier = GateClassifier(input_dim=input_dim, num_classes=num_classes)
         self.classifier.load_state_dict(checkpoint["model_state_dict"])
@@ -65,7 +65,7 @@ class Gate:
         Route a query to expert(s).
         
         Returns:
-            dict like {"text": 0.82, "table": 0.61, "image": 0.09}
+            dict like {"text": 0.82, "table": 0.61, "image": 0.09, "code": 0.01}
             Only experts above threshold are included.
         """
         if not self._loaded:
@@ -138,6 +138,7 @@ if __name__ == "__main__":
         "show me the top 5 products by unit sales",
         "what information is in the pie chart on page 7",
         "explain the methodology described in section 3",
+        "where is the handle_request function defined?",
     ]
     
     print("\n" + "=" * 70)

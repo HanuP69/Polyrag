@@ -48,6 +48,8 @@ if (cluster.isPrimary) {
   });
   app.use("/api/query", limiter);
 
+  const authMiddleware = require("./middleware/auth");
+
   app.get("/api/health", (req, res) => {
     res.json({
       status: "ok",
@@ -58,9 +60,18 @@ if (cluster.isPrimary) {
     });
   });
 
+  const authMiddleware = require("./middleware/auth");
+
+  // Public
+  app.use(configRoutes);
+  
+  // Protected
+  app.use("/api/query", authMiddleware);
+  app.use("/api/ingest", authMiddleware);
+  app.use("/api/feedback", authMiddleware);
+  
   app.use(queryRoutes);
   app.use(ingestRoutes);
-  app.use(configRoutes);
   app.use(feedbackRoutes);
 
   app.use((err, req, res, next) => {

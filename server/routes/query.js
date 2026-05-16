@@ -9,7 +9,8 @@ const REWRITE_THRESHOLD = 0.5;
 
 router.post("/api/query", async (req, res) => {
   const start = Date.now();
-  const { query, org_id = "default", top_k = 10, system_prompt, model, chat_history = [] } = req.body;
+  const { query, top_k = 10, system_prompt, model, chat_history = [] } = req.body;
+  const org_id = req.user?.id || "default";
 
   if (!query) {
     return res.status(400).json({ error: "query is required" });

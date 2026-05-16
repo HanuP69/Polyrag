@@ -36,7 +36,7 @@ router.post("/api/ingest", upload.single("file"), async (req, res) => {
     return res.status(400).json({ error: "No file uploaded" });
   }
 
-  const orgId = req.body.org_id || "default";
+  const orgId = req.user?.id || "default";
 
   try {
     const result = await engine.ingestFile(req.file.path, orgId);
@@ -59,6 +59,27 @@ router.get("/api/ingest/:fileId", async (req, res) => {
     if (err.response && err.response.status === 404) {
       return res.status(404).json({ error: "File ID not found" });
     }
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/api/ingest/github", async (req, res) => {
+  const repoUrl = req.body.repo_url;
+  const orgId = req.user?.id || "default";
+
+  if (!repoUrl) {
+    return res.status(400).json({ error: "No repo_url provided" });
+  }
+
+  try {
+    const result = await engine.ingestGithub(repoUrl, orgId);
+    res.json({
+      status: result.status,
+      file_id: result.file_id,
+      repo: result.repo,
+    });
+  } catch (err) {
+    console.error("[Ingest] GitHub ingest failed:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

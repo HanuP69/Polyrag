@@ -1,13 +1,20 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import "./index.css";
-import { queryStream, uploadFile, getIngestStatus, submitFeedback, getPipelineHealth, getModels } from "./api";
+import { queryStream, uploadFile, uploadGithub, getIngestStatus, submitFeedback, getPipelineHealth, getModels } from "./api";
+import Login from "./Login";
+import { supabase } from "./supabaseClient";
 
-function App() {
+function MainApp({ session }) {
+  // Use session.user.id implicitly via api.js auth headers
+  // But we might need to pass it to the UI if we want to show email or logout button.
+  
+  // existing code for App ...
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [files, setFiles] = useState([]);
   const [health, setHealth] = useState(null);
+  const [githubUrl, setGithubUrl] = useState("");
   const [dragging, setDragging] = useState(false);
   const [model, setModel] = useState("llama3.2:3b");
   const [modelRegistry, setModelRegistry] = useState({});
@@ -153,6 +160,50 @@ function App() {
     }
   }, []);
 
+  const handleGithubUpload = useCallback(async (repoUrl) => {
+    if (!repoUrl) return;
+    const repoName = repoUrl.split("/").pop() || "repository";
+    const entry = { name: repoName, status: "uploading", progress: 0, id: null };
+    setFiles((prev) => [...prev, entry]);
+
+    try {
+      const result = await uploadGithub(repoUrl);
+      const fileId = result.file_id;
+
+      setFiles((prev) =>
+        prev.map((f) => (f.name === repoName && f.status === "uploading" ? { ...f, id: fileId, status: "queued" } : f))
+      );
+
+      const poll = setInterval(async () => {
+        try {
+          const status = await getIngestStatus(fileId);
+          setFiles((prev) =>
+            prev.map((f) =>
+              f.id === fileId ? {
+                ...f,
+                status: status.status,
+                progress: status.progress || 0,
+                experts: status.experts || null,
+                expert_names: status.expert_names || null,
+                total_chunks: status.total_chunks || null,
+                experts_used: status.experts_used || null,
+              } : f
+            )
+          );
+          if (status.status === "indexed" || status.status === "failed") {
+            clearInterval(poll);
+          }
+        } catch {
+          clearInterval(poll);
+        }
+      }, 800);
+    } catch (err) {
+      setFiles((prev) =>
+        prev.map((f) => (f.name === repoName && f.status === "uploading" ? { ...f, status: "failed" } : f))
+      );
+    }
+  }, []);
+
   const handleFeedback = useCallback(async (msgIndex, rating) => {
     setMessages((prev) => {
       const msgs = [...prev];
@@ -253,6 +304,48 @@ function App() {
                 style={{ display: "none" }}
                 onChange={(e) => handleFileUpload(e.target.files)}
               />
+            </div>
+            
+            <div className="github-upload" style={{ marginTop: "1rem" }}>
+              <div className="sidebar-label" style={{ marginBottom: "0.5rem" }}>Ingest GitHub Repo</div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <input
+                  type="text"
+                  placeholder="https://github.com/user/repo"
+                  value={githubUrl}
+                  onChange={(e) => setGithubUrl(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      handleGithubUpload(githubUrl);
+                      setGithubUrl("");
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    padding: "8px",
+                    borderRadius: "6px",
+                    border: "1px solid var(--border)",
+                    background: "var(--bg-card)",
+                    color: "var(--text)"
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    handleGithubUpload(githubUrl);
+                    setGithubUrl("");
+                  }}
+                  style={{
+                    padding: "8px 12px",
+                    background: "var(--primary)",
+                    color: "white",
+                    border: "none",
+                    borderRadius: "6px",
+                    cursor: "pointer"
+                  }}
+                >
+                  Ingest
+                </button>
+              </div>
             </div>
           </div>
 
@@ -472,4 +565,11 @@ function SourceCards({ sources }) {
   );
 }
 
-export default App;
+export default function App() {
+  const [session, setSession] = useState(null);
+
+  if (!session) {
+    return <Login setSession={setSession} />;
+  }
+  return <MainApp session={session} />;
+}

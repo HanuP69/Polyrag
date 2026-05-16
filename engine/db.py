@@ -53,6 +53,9 @@ def _get_pg():
     if _pg_pool is None:
         _pg_pool = psycopg2.connect(DATABASE_URL)
         _pg_pool.autocommit = False
+        with _pg_pool.cursor() as cur:
+            cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
+        _pg_pool.commit()
         register_vector(_pg_pool)
     return _pg_pool
 

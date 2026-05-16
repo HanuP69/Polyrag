@@ -30,11 +30,11 @@ from engine.config import (
 # ──────────────────────────── Gate Classifier Model ──────────────────
 class GateClassifier(nn.Module):
     """
-    3-class multi-label classifier.
+    4-class multi-label classifier.
     Input: 768-dim or 1024-dim BGE-M3 embedding
-    Output: 3-dim logits (text, table, image)
+    Output: 4-dim logits (text, table, image, code)
     """
-    def __init__(self, input_dim: int = EMBEDDING_DIM, num_classes: int = 3):
+    def __init__(self, input_dim: int = EMBEDDING_DIM, num_classes: int = 4):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(input_dim, 128),
@@ -51,7 +51,7 @@ class GateClassifier(nn.Module):
 def load_synthetic_data(path: str) -> tuple[list[str], np.ndarray]:
     """
     Load synthetic training data from JSON.
-    Returns (queries, labels) where labels is a multi-hot array [N, 3].
+    Returns (queries, labels) where labels is a multi-hot array [N, 4].
     """
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -59,7 +59,7 @@ def load_synthetic_data(path: str) -> tuple[list[str], np.ndarray]:
     queries = []
     labels = []
     
-    expert_to_idx = {"text": 0, "table": 1, "image": 2}
+    expert_to_idx = {"text": 0, "table": 1, "image": 2, "code": 3}
     
     for expert_id, expert_queries in data.items():
         if expert_id not in expert_to_idx:
@@ -67,7 +67,7 @@ def load_synthetic_data(path: str) -> tuple[list[str], np.ndarray]:
         idx = expert_to_idx[expert_id]
         for q in expert_queries:
             queries.append(q)
-            label = [0.0, 0.0, 0.0]
+            label = [0.0, 0.0, 0.0, 0.0]
             label[idx] = 1.0
             labels.append(label)
     
@@ -183,7 +183,7 @@ def train_gate(
     save_dict = {
         "model_state_dict": best_state,
         "input_dim": input_dim,
-        "num_classes": 3,
+        "num_classes": 4,
         "best_val_loss": best_val_loss,
     }
     torch.save(save_dict, GATE_MODEL_PATH)

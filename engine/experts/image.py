@@ -84,6 +84,13 @@ class ImageExpert(BaseExpert):
                     if pix.width < MIN_SIZE or pix.height < MIN_SIZE:
                         continue
 
+                    # Resize if too large to prevent Ollama 500 OOM errors
+                    MAX_DIM = 1024
+                    if pix.width > MAX_DIM or pix.height > MAX_DIM:
+                        scale = MAX_DIM / max(pix.width, pix.height)
+                        mat = fitz.Matrix(scale, scale)
+                        pix = fitz.Pixmap(pix, mat)
+
                     img_bytes = pix.tobytes("png")
                     b64 = base64.b64encode(img_bytes).decode("utf-8")
                     candidates.append((page_num, pix.width, pix.height, b64))
@@ -117,7 +124,8 @@ class ImageExpert(BaseExpert):
             print(f"[ImageExpert] Captioned {idx+1}/{total} (page {page_num+1})")
             return page_num, w, h, cap
 
-        with ThreadPoolExecutor(max_workers=2) as pool:
+        # Use max_workers=1 because local Ollama llava crashes with 500 on concurrent vision inference
+        with ThreadPoolExecutor(max_workers=1) as pool:
             futures = {
                 pool.submit(caption_one, i, pn, w, h, b64): i
                 for i, (pn, w, h, b64) in enumerate(candidates)

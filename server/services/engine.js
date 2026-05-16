@@ -115,6 +115,18 @@ async function getModels() {
   return data;
 }
 
+async function ingestGithub(repoUrl, orgId) {
+  const FormData = require("form-data");
+  const form = new FormData();
+  form.append("repo_url", repoUrl);
+  form.append("org_id", orgId);
+  const { data } = await client.post("/ingest/github", form, {
+    headers: form.getHeaders(),
+    timeout: 300000, // 5 minutes for downloading and parsing a whole repo
+  });
+  return data;
+}
+
 module.exports = {
   gate,
   rewrite,
@@ -124,6 +136,7 @@ module.exports = {
   guard,
   streamGenerate,
   ingestFile,
+  ingestGithub,
   getIngestStatus,
   getOrgConfig,
   updateOrgConfig,
