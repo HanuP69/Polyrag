@@ -68,8 +68,9 @@ router.post("/api/query", async (req, res) => {
     const expertResults = {};
     resultKeys.forEach((key, i) => {
       const result = retrievalResults[i];
-      if (result && ((result.chunks && result.chunks.length > 0) || (Array.isArray(result) && result.length > 0))) {
-        expertResults[key] = result;
+      const chunks = result?.chunks || (Array.isArray(result) ? result : []);
+      if (chunks.length > 0) {
+        expertResults[key] = { chunks };
       }
     });
 
@@ -90,8 +91,9 @@ router.post("/api/query", async (req, res) => {
         const fallbackResults = await Promise.all(fallbackPromises);
         missingExperts.forEach((expertId, i) => {
           const result = fallbackResults[i];
-          if (result && result.chunks && result.chunks.length > 0) {
-            expertResults[`${expertId}_fallback`] = result;
+          const chunks = result?.chunks || (Array.isArray(result) ? result : []);
+          if (chunks.length > 0) {
+            expertResults[`${expertId}_fallback`] = { chunks };
             gateWeights[expertId] = 0.3;
           }
         });
@@ -160,8 +162,7 @@ router.post("/api/query", async (req, res) => {
                 if (event.type === "token") {
                   fullAnswer += event.content;
                   res.write(`data: ${JSON.stringify({ type: "token", content: event.content })}\n\n`);
-                  
-                  // Start guard early when we have enough text (~500 chars)
+
                   if (fullAnswer.length > 500 && !earlyGuardPromise) {
                     earlyGuardPromise = engine.guard(
                       fullAnswer,
@@ -183,20 +184,15 @@ router.post("/api/query", async (req, res) => {
 
     let guardResult = null;
     try {
+      const fullGuardPromise = engine.guard(
+        fullAnswer,
+        sources.map((s) => s.content)
+      ).catch(() => null);
+
       if (earlyGuardPromise) {
-        // Use the guard that started during streaming (may be partial)
-        // But also fire a full guard on complete answer
-        const fullGuardPromise = engine.guard(
-          fullAnswer,
-          sources.map((s) => s.content)
-        ).catch(() => null);
-        // Race: use whichever finishes first (early guard has a head start)
-        guardResult = await fullGuardPromise;
+        guardResult = await Promise.race([earlyGuardPromise, fullGuardPromise]);
       } else {
-        guardResult = await engine.guard(
-          fullAnswer,
-          sources.map((s) => s.content)
-        );
+        guardResult = await fullGuardPromise;
       }
     } catch (err) {
       console.error("[Query] Guard failed:", err.message);
@@ -223,10 +219,6 @@ router.post("/api/query", async (req, res) => {
       guard: guardResult,
       latency_ms: elapsed,
     });
-
-    try {
-      await engine.submitFeedback(null, 0);
-    } catch {}
   } catch (err) {
     console.error("[Query] Pipeline error:", err.message);
     if (!res.headersSent) {
@@ -258,8 +250,9 @@ router.post("/api/query/sync", async (req, res) => {
 
     const expertResults = {};
     activeExperts.forEach(([expertId], i) => {
-      if (results[i] && results[i].chunks && results[i].chunks.length > 0) {
-        expertResults[expertId] = results[i];
+      const chunks = results[i]?.chunks || (Array.isArray(results[i]) ? results[i] : []);
+      if (chunks.length > 0) {
+        expertResults[expertId] = { chunks };
       }
     });
 

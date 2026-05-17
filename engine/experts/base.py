@@ -44,7 +44,7 @@ class BaseExpert(ABC):
     embed_dim: int = 1024   # BGE-M3 dimension
     
     @abstractmethod
-    def parse(self, file_path: str, file_id: str = "", org_id: str = "") -> list[Chunk]:
+    def parse(self, file_path: str, file_id: str = "", org_id: str = "", config: dict = None) -> list[Chunk]:
         """
         Extract chunks from a file.
         

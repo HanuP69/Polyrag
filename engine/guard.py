@@ -51,7 +51,8 @@ def verify_answer(answer: str, sources: list[str]) -> dict:
             entailment = float(scores) if float(scores) > 0 else 0.5
             contradiction = 0.0
 
-        grounded = entailment > 0.5 and contradiction < 0.5
+        # Loosened guardrail threshold as requested
+        grounded = entailment > 0.3 and contradiction < 0.7
 
         results.append({
             "claim": claim[:200],

@@ -33,7 +33,7 @@ class TableExpert(BaseExpert):
 
     # ── parsing ──────────────────────────────────────────────────────
 
-    def parse(self, file_path: str, file_id: str = "", org_id: str = "") -> list[Chunk]:
+    def parse(self, file_path: str, file_id: str = "", org_id: str = "", config: dict = None) -> list[Chunk]:
         ext = os.path.splitext(file_path)[1].lower()
         if ext == ".csv":
             return self._parse_csv(file_path, file_id, org_id)

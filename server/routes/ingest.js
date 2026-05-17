@@ -37,9 +37,13 @@ router.post("/api/ingest", upload.single("file"), async (req, res) => {
   }
 
   const orgId = req.user?.id || "default";
+  let models = {};
+  if (req.body.models) {
+    try { models = JSON.parse(req.body.models); } catch (e) {}
+  }
 
   try {
-    const result = await engine.ingestFile(req.file.path, orgId);
+    const result = await engine.ingestFile(req.file.path, orgId, models);
     res.json({
       status: result.status,
       file_id: result.file_id,
@@ -66,13 +70,14 @@ router.get("/api/ingest/:fileId", async (req, res) => {
 router.post("/api/ingest/github", async (req, res) => {
   const repoUrl = req.body.repo_url;
   const orgId = req.user?.id || "default";
+  const models = req.body.models || {};
 
   if (!repoUrl) {
     return res.status(400).json({ error: "No repo_url provided" });
   }
 
   try {
-    const result = await engine.ingestGithub(repoUrl, orgId);
+    const result = await engine.ingestGithub(repoUrl, orgId, models);
     res.json({
       status: result.status,
       file_id: result.file_id,
@@ -80,6 +85,29 @@ router.post("/api/ingest/github", async (req, res) => {
     });
   } catch (err) {
     console.error("[Ingest] GitHub ingest failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/api/files", async (req, res) => {
+  const orgId = req.user?.id || "default";
+  try {
+    const files = await engine.getOrgFiles(orgId);
+    res.json(files);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete("/api/file/:fileId", async (req, res) => {
+  const orgId = req.user?.id || "default";
+  try {
+    const data = await engine.deleteOrgFile(orgId, req.params.fileId);
+    res.json(data);
+  } catch (err) {
+    if (err.response && err.response.status === 404) {
+      return res.status(404).json({ error: "File not found" });
+    }
     res.status(500).json({ error: err.message });
   }
 });

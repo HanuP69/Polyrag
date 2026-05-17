@@ -250,6 +250,65 @@ def update_org_config(org_id: str, name: str, config: dict):
         conn.commit()
 
 
+def get_files_by_org(org_id: str) -> list:
+    conn = get_conn()
+    if TESTING:
+        rows = conn.execute(
+            "SELECT file_id, name, type, status, chunk_count, experts_used, created_at FROM files WHERE org_id = ? ORDER BY created_at DESC",
+            (org_id,)
+        ).fetchall()
+        return [
+            {
+                "id": r["file_id"],
+                "name": r["name"],
+                "type": r["type"],
+                "status": r["status"],
+                "total_chunks": r["chunk_count"],
+                "experts_used": json.loads(r["experts_used"]) if r["experts_used"] else [],
+                "created_at": r["created_at"]
+            } for r in rows
+        ]
+    else:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT file_id, name, type, status, chunk_count, experts_used, created_at FROM files WHERE org_id = %s ORDER BY created_at DESC",
+            (org_id,)
+        )
+        rows = cur.fetchall()
+        return [
+            {
+                "id": r[0],
+                "name": r[1],
+                "type": r[2],
+                "status": r[3],
+                "total_chunks": r[4],
+                "experts_used": r[5] if isinstance(r[5], list) else [],
+                "created_at": r[6].isoformat() if hasattr(r[6], 'isoformat') else str(r[6])
+            } for r in rows
+        ]
+
+def delete_file(org_id: str, file_id: str) -> bool:
+    conn = get_conn()
+    if TESTING:
+        # Check if the file belongs to the org
+        row = conn.execute("SELECT file_id FROM files WHERE org_id = ? AND file_id = ?", (org_id, file_id)).fetchone()
+        if not row:
+            return False
+            
+        conn.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
+        conn.execute("DELETE FROM files WHERE file_id = ?", (file_id,))
+        conn.commit()
+        return True
+    else:
+        cur = conn.cursor()
+        cur.execute("SELECT file_id FROM files WHERE org_id = %s AND file_id = %s", (org_id, file_id))
+        if not cur.fetchone():
+            return False
+            
+        cur.execute("DELETE FROM chunks WHERE file_id = %s", (file_id,))
+        cur.execute("DELETE FROM files WHERE file_id = %s", (file_id,))
+        conn.commit()
+        return True
 def create_file(org_id: str, name: str, file_type: str) -> str:
     conn = get_conn()
     file_id = str(uuid.uuid4())

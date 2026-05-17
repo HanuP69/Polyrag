@@ -60,19 +60,16 @@ if (cluster.isPrimary) {
     });
   });
 
-  const authMiddleware = require("./middleware/auth");
-
-  // Public
-  app.use(configRoutes);
-  
   // Protected
   app.use("/api/query", authMiddleware);
   app.use("/api/ingest", authMiddleware);
   app.use("/api/feedback", authMiddleware);
+  app.use("/api/config", authMiddleware);
   
   app.use(queryRoutes);
   app.use(ingestRoutes);
   app.use(feedbackRoutes);
+  app.use(configRoutes);
 
   app.use((err, req, res, next) => {
     console.error("[Server] Unhandled error:", err.message);

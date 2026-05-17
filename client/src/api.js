@@ -18,6 +18,11 @@ export async function queryStream(query, orgId = "default", model = "llama3.2:3b
     body: JSON.stringify({ query, org_id: orgId, model, chat_history: chatHistory }),
   });
 
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Query failed (${res.status}): ${errText}`);
+  }
+
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -38,7 +43,7 @@ export async function queryStream(query, orgId = "default", model = "llama3.2:3b
           else if (event.type === "token") onToken(event.content);
           else if (event.type === "guard") onGuard(event);
           else if (event.type === "done") onDone(event);
-        } catch {}
+        } catch { }
       }
     }
   }

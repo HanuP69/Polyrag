@@ -67,12 +67,23 @@ function streamGenerate(prompt, query, model, chatHistory = []) {
   );
 }
 
-async function ingestFile(filePath, orgId) {
+async function generate(prompt, query, model, chatHistory = []) {
+  const { data } = await client.post("/generate", {
+    prompt,
+    query,
+    model,
+    chat_history: chatHistory
+  });
+  return data;
+}
+
+async function ingestFile(filePath, orgId, models = {}) {
   const FormData = require("form-data");
   const fs = require("fs");
   const form = new FormData();
   form.append("file", fs.createReadStream(filePath));
   form.append("org_id", orgId);
+  form.append("models", JSON.stringify(models));
   const { data } = await client.post("/ingest/async", form, {
     headers: form.getHeaders(),
     timeout: 60000,
@@ -81,7 +92,7 @@ async function ingestFile(filePath, orgId) {
 }
 
 async function getIngestStatus(fileId) {
-  const { data } = await client.get(`/ingest/status/${fileId}`);
+  const { data } = await client.get(`/file/${fileId}`);
   return data;
 }
 
@@ -115,15 +126,26 @@ async function getModels() {
   return data;
 }
 
-async function ingestGithub(repoUrl, orgId) {
+async function ingestGithub(repoUrl, orgId, models = {}) {
   const FormData = require("form-data");
   const form = new FormData();
   form.append("repo_url", repoUrl);
   form.append("org_id", orgId);
+  form.append("models", JSON.stringify(models));
   const { data } = await client.post("/ingest/github", form, {
     headers: form.getHeaders(),
     timeout: 300000, // 5 minutes for downloading and parsing a whole repo
   });
+  return data;
+}
+
+async function getOrgFiles(orgId) {
+  const { data } = await client.get(`/files/${orgId}`);
+  return data;
+}
+
+async function deleteOrgFile(orgId, fileId) {
+  const { data } = await client.delete(`/files/${orgId}/${fileId}`);
   return data;
 }
 
@@ -135,6 +157,7 @@ module.exports = {
   rerankChunks,
   guard,
   streamGenerate,
+  generate,
   ingestFile,
   ingestGithub,
   getIngestStatus,
@@ -143,4 +166,6 @@ module.exports = {
   submitFeedback,
   getPipelineHealth,
   getModels,
+  getOrgFiles,
+  deleteOrgFile,
 };

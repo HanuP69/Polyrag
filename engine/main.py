@@ -1,17 +1,3 @@
-"""
-main.py -- FastAPI app for the PolyRAG engine.
-
-All ML lives here. Routes:
-  POST /parse      -- detect file type → call expert.parse() → return chunks
-  POST /embed      -- call expert.embed() → upsert to pgvector
-  POST /gate       -- gate.py inference → return expert weights
-  POST /retrieve   -- embed query → pgvector cosine search → return top-k chunks
-  POST /ingest     -- full pipeline: upload → parse → embed → index
-  POST /query      -- full query pipeline: gate → retrieve → fuse → generate
-  GET  /health     -- health check
-  GET  /file/{id}  -- get file status
-"""
-
 import os
 import sys
 import time
@@ -19,6 +5,7 @@ import json
 import shutil
 import hashlib
 import asyncio
+import uuid as uuid_lib
 from typing import Optional
 from contextlib import asynccontextmanager
 from functools import lru_cache
@@ -45,30 +32,24 @@ from engine.rewrite import rewrite_query
 from engine.guard import verify_answer
 from engine.heal import get_pipeline_health, should_retrain_gate
 
-
-# ──────────────────────────── Globals ────────────────────────────────
-# Lazy-loaded singletons
 _gate = None
 _experts = {}
-_embed_model = None          # shared BGE-M3 embedding model
+_embed_model = None
 _query_cache = {}
 _ingestion_status = {}
 MAX_CACHE = 500
 _io_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="polyrag-io")
 
 
-# ──────────────────────────── Startup / Shutdown ─────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """App startup and shutdown."""
     global _gate, _experts
-    
+
     print("=" * 60)
     print("  PolyRAG Engine Starting")
     print(f"  Mode: {'TESTING (Ollama)' if TESTING else 'PRODUCTION (Groq)'}")
     print("=" * 60)
-    
-    # Initialize database
+
     try:
         from engine.db import init_db, ensure_org
         init_db()
@@ -77,8 +58,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Main] [WARN] Database init failed: {e}")
         print("[Main]   Running without database -- some features will be unavailable")
-    
-    # Load gate (lazy -- will load on first request if model exists)
+
     try:
         from engine.gate.gate import get_gate
         _gate = get_gate()
@@ -88,7 +68,7 @@ async def lifespan(app: FastAPI):
         print("[Main]   Gate will default to 'text' expert for all queries")
     except Exception as e:
         print(f"[Main] [WARN] Gate load failed: {e}")
-    
+
     from engine.experts.text import TextExpert
     from engine.experts.table import TableExpert
     from engine.experts.image import ImageExpert
@@ -101,8 +81,7 @@ async def lifespan(app: FastAPI):
     print("[Main] [OK] Table expert registered")
     print("[Main] [OK] Image expert registered")
     print("[Main] [OK] Code expert registered")
-    
-    # Load shared embedding model once (all experts reuse this)
+
     global _embed_model
     try:
         from sentence_transformers import SentenceTransformer
@@ -110,9 +89,9 @@ async def lifespan(app: FastAPI):
         print(f"[Main] [OK] Shared embedding model loaded: {EMBEDDING_MODEL}")
     except Exception as e:
         print(f"[Main] [WARN] Shared embedding model failed: {e}")
-    
+
     yield
-    
+
     print("[Main] Shutting down...")
 
 
@@ -132,7 +111,6 @@ app.add_middleware(
 )
 
 
-# ──────────────────────────── Request Models ─────────────────────────
 class GateRequest(BaseModel):
     query: str
 
@@ -153,18 +131,15 @@ class QueryRequest(BaseModel):
     system_prompt: Optional[str] = None
     model: Optional[str] = None
     session_id: Optional[str] = None
-    chat_history: Optional[list[dict]] = None  # [{"role": "user"|"assistant", "content": "..."}]
+    chat_history: Optional[list[dict]] = None
 
 class EmbedRequest(BaseModel):
     chunks: list[dict]
     expert_id: str
 
 
-# ──────────────────────────── Routes ─────────────────────────────────
-
 @app.get("/health")
 async def health():
-    """Health check."""
     return {
         "status": "ok",
         "mode": "testing" if TESTING else "production",
@@ -194,18 +169,18 @@ async def list_models():
 
 @app.post("/gate")
 async def gate_route(req: GateRequest):
-    """
-    Route a query to expert(s) via the gate classifier.
-    Returns expert weights dict.
-    """
     if _gate is None:
-        # Fallback: route everything to text
         return {"weights": {"text": 1.0}, "raw": {"text": 1.0, "table": 0.0, "image": 0.0}}
-    
+
     raw = _gate.route_raw(req.query)
     active = _gate.route(req.query)
-    
+
     return {"weights": active, "raw": raw}
+
+
+def _safe_file_path(filename: str) -> str:
+    safe_name = f"{uuid_lib.uuid4()}_{os.path.basename(filename)}"
+    return os.path.join(UPLOAD_DIR, safe_name)
 
 
 @app.post("/parse")
@@ -214,32 +189,24 @@ async def parse_file(
     org_id: str = Form("default"),
     file_id: str = Form("")
 ):
-    """
-    Parse an uploaded file into chunks.
-    Detects file type and routes to appropriate expert(s).
-    """
-    # Save uploaded file
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-    
+    file_path = _safe_file_path(file.filename)
+
     with open(file_path, "wb") as f:
         content = await file.read()
         f.write(content)
-    
-    # Detect file type and route to expert(s)
+
     ext = os.path.splitext(file.filename)[1].lower()
-    
+
     all_chunks = []
     experts_used = []
-    
-    # Text expert handles PDFs, txt, md
+
     if ext in [".pdf", ".txt", ".md"] and "text" in _experts:
         chunks = _experts["text"].parse(file_path, file_id=file_id, org_id=org_id)
         all_chunks.extend(chunks)
         if chunks:
             experts_used.append("text")
-    
-    # Table expert handles CSV and table regions in PDFs
+
     if ext in [".csv"] and "table" in _experts:
         chunks = _experts["table"].parse(file_path, file_id=file_id, org_id=org_id)
         all_chunks.extend(chunks)
@@ -250,7 +217,7 @@ async def parse_file(
         all_chunks.extend(chunks)
         if chunks and "table" not in experts_used:
             experts_used.append("table")
-    
+
     if ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"] and "image" in _experts:
         chunks = _experts["image"].parse(file_path, file_id=file_id, org_id=org_id)
         all_chunks.extend(chunks)
@@ -261,7 +228,7 @@ async def parse_file(
         all_chunks.extend(chunks)
         if chunks and "image" not in experts_used:
             experts_used.append("image")
-    
+
     return {
         "file_path": file_path,
         "chunks": [
@@ -280,16 +247,12 @@ async def parse_file(
 
 @app.post("/embed")
 async def embed_chunks(req: EmbedRequest):
-    """
-    Embed chunks and upsert to pgvector.
-    """
     expert_id = req.expert_id
     if expert_id not in _experts:
         raise HTTPException(status_code=400, detail=f"Expert '{expert_id}' not registered")
-    
+
     expert = _experts[expert_id]
-    
-    # Reconstruct Chunk objects
+
     chunks = [
         Chunk(
             chunk_id=c.get("chunk_id", ""),
@@ -301,356 +264,28 @@ async def embed_chunks(req: EmbedRequest):
         )
         for c in req.chunks
     ]
-    
-    # Embed
+
     chunks = expert.embed(chunks)
-    
-    # Upsert to database
+
     try:
         from engine.db import upsert_chunks
         upsert_chunks(chunks)
     except Exception as e:
         print(f"[Main] [WARN] DB upsert failed: {e}")
         return {"status": "embedded_not_stored", "count": len(chunks), "error": str(e)}
-    
+
     return {"status": "ok", "count": len(chunks)}
 
 
-@app.post("/retrieve")
-async def retrieve_chunks(req: RetrieveRequest):
-    """
-    Embed query and search pgvector for similar chunks.
-    """
-    expert_id = req.expert_id
-    if expert_id not in _experts:
-        raise HTTPException(status_code=400, detail=f"Expert '{expert_id}' not registered")
-    
-    expert = _experts[expert_id]
-    
-    # Embed query
-    query_vec = expert.embed_query(req.query)
-    
-    # Search
-    chunks = expert.retrieve(query_vec, req.org_id, req.top_k)
-    
-    return {
-        "expert_id": expert_id,
-        "chunks": [
-            {
-                "chunk_id": c.chunk_id,
-                "content": c.content,
-                "metadata": c.metadata,
-                "expert_id": c.expert_id,
-            }
-            for c in chunks
-        ],
-        "count": len(chunks),
-    }
-
-
-@app.post("/ingest")
-async def ingest_file(
-    file: UploadFile = File(...),
-    org_id: str = Form("default"),
-):
-    """
-    Full ingestion pipeline:
-    1. Save file
-    2. Create file record in DB
-    3. Parse → chunks
-    4. Embed chunks
-    5. Upsert to pgvector
-    6. Update file status → indexed
-    """
-    start = time.time()
-    
-    # Ensure org exists
-    try:
-        from engine.db import ensure_org, create_file, update_file_status, upsert_chunks
-        ensure_org(org_id)
-        db_available = True
-    except Exception as e:
-        print(f"[Main] [WARN] DB not available: {e}")
-        db_available = False
-    
-    # Save file
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
-    with open(file_path, "wb") as f:
-        content = await file.read()
-        f.write(content)
-    
-    ext = os.path.splitext(file.filename)[1].lower()
-    
-    # Create file record
-    file_id = ""
-    if db_available:
-        file_id = create_file(org_id, file.filename, ext.lstrip("."))
-        update_file_status(file_id, "parsing")
-    
-    # ── PHASE 1: Parallel Parse ──────────────────────────────────────
-    update_file_status(file_id, "parsing")
-    
-    parse_tasks = []
-    experts_to_check = []
-    
-    # Text
-    if ext in [".pdf", ".txt", ".md"] and "text" in _experts:
-        parse_tasks.append(asyncio.to_thread(_experts["text"].parse, file_path, file_id, org_id))
-        experts_to_check.append("text")
-    
-    # Table
-    if (ext in [".csv"] or ext == ".pdf") and "table" in _experts:
-        parse_tasks.append(asyncio.to_thread(_experts["table"].parse, file_path, file_id, org_id))
-        experts_to_check.append("table")
-        
-    # Image
-    if (ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"] or ext == ".pdf") and "image" in _experts:
-        parse_tasks.append(asyncio.to_thread(_experts["image"].parse, file_path, file_id, org_id))
-        experts_to_check.append("image")
-        
-    parse_results = await asyncio.gather(*parse_tasks, return_exceptions=True)
-    
-    all_chunks = []
-    experts_used = []
-    
-    for i, result in enumerate(parse_results):
-        expert_id = experts_to_check[i]
-        if isinstance(result, Exception):
-            print(f"[Ingest] [WARN] Expert {expert_id} failed: {result}")
-            continue
-        if result:
-            all_chunks.extend(result)
-            experts_used.append(expert_id)
-    
-    if not all_chunks:
-        if db_available:
-            update_file_status(file_id, "failed")
-        return {"status": "no_chunks", "file_id": file_id}
-    
-    # ── PHASE 2: Parallel Embedding ───────────────────────────────────
-    if db_available:
-        update_file_status(file_id, "embedding", chunk_count=len(all_chunks))
-    
-    if all_chunks:
-        import torch
-        BATCH_SIZE = 8
-        total = len(all_chunks)
-        print(f"[Ingest] Embedding {total} chunks (batch_size={BATCH_SIZE})...")
-
-        def _do_embed():
-            all_embs = []
-            for i in range(0, total, BATCH_SIZE):
-                batch = [c.content for c in all_chunks[i:i+BATCH_SIZE]]
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                embs = _embed_model.encode(
-                    batch, batch_size=BATCH_SIZE,
-                    show_progress_bar=False, normalize_embeddings=True
-                )
-                all_embs.extend(embs)
-            return all_embs
-
-        embeddings = await asyncio.to_thread(_do_embed)
-
-        for chunk, emb in zip(all_chunks, embeddings):
-            chunk.embedding = emb
-
-        print(f"[Ingest] [OK] Embedded all chunks")
-    
-    # Upsert
-    if db_available:
-        upsert_chunks(all_chunks)
-        update_file_status(
-            file_id, "indexed",
-            chunk_count=len(all_chunks),
-            experts_used=experts_used
-        )
-    
-    elapsed = int((time.time() - start) * 1000)
-    
-    return {
-        "status": "indexed",
-        "file_id": file_id,
-        "file_name": file.filename,
-        "total_chunks": len(all_chunks),
-        "experts_used": experts_used,
-        "latency_ms": elapsed,
-    }
-
-
-@app.post("/ingest/github")
-async def ingest_github(
-    repo_url: str = Form(...),
-    org_id: str = Form("default"),
-):
-    """
-    Download and ingest a public GitHub repository.
-    """
-    import zipfile
-    import tempfile
-    
-    start = time.time()
-    
-    # Ensure org exists
-    try:
-        from engine.db import ensure_org, create_file, update_file_status, upsert_chunks
-        ensure_org(org_id)
-        db_available = True
-    except Exception as e:
-        print(f"[Main] [WARN] DB not available: {e}")
-        db_available = False
-
-    # Standardize URL to get the zip archive
-    # E.g. https://github.com/HanuP69/Polyrag
-    clean_url = repo_url.rstrip("/")
-    parts = clean_url.split("/")
-    if len(parts) >= 2:
-        owner = parts[-2]
-        repo_name = parts[-1]
-        zip_url = f"https://api.github.com/repos/{owner}/{repo_name}/zipball"
-    else:
-        repo_name = clean_url
-        zip_url = clean_url
-    
-    file_id = ""
-    if db_available:
-        file_id = create_file(org_id, f"github_{repo_name}", "zip")
-        update_file_status(file_id, "parsing")
-        
-    try:
-        resp = requests.get(zip_url, timeout=30, allow_redirects=True)
-        resp.raise_for_status()
-    except Exception as e:
-        if db_available:
-            update_file_status(file_id, "failed")
-        raise HTTPException(status_code=400, detail=f"Failed to download repo: {e}")
-        
-    all_chunks = []
-    experts_used = ["code"]
-    
-    from engine.experts.code import CODE_EXTENSIONS
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        zip_path = os.path.join(tmpdir, "repo.zip")
-        with open(zip_path, "wb") as f:
-            f.write(resp.content)
-            
-        extract_dir = os.path.join(tmpdir, "extracted")
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(extract_dir)
-            
-        # Walk directory and parse
-        for root, _, files in os.walk(extract_dir):
-            for file in files:
-                ext = os.path.splitext(file)[1].lower()
-                if ext in CODE_EXTENSIONS:
-                    file_path = os.path.join(root, file)
-                    # Use relative path for metadata context to look cleaner
-                    rel_path = os.path.relpath(file_path, extract_dir)
-                    
-                    if "code" in _experts:
-                        try:
-                            # Pass rel_path as the second arg so parse() gets it, wait, parse() takes file_path. 
-                            # We'll pass file_path and code expert extracts basename.
-                            chunks = await asyncio.to_thread(_experts["code"].parse, file_path, file_id, org_id)
-                            # Overwrite the basename with the full relative path from the repo root
-                            for c in chunks:
-                                c.metadata["file_path"] = rel_path
-                                # Update content string too
-                                c.content = c.content.replace(os.path.basename(file_path), rel_path)
-                            all_chunks.extend(chunks)
-                        except Exception as e:
-                            print(f"[Ingest] [WARN] Code expert failed on {rel_path}: {e}")
-                            
-    if not all_chunks:
-        if db_available:
-            update_file_status(file_id, "failed")
-        return {"status": "no_chunks", "file_id": file_id}
-        
-    # Phase 2: Embedding
-    if db_available:
-        update_file_status(file_id, "embedding", chunk_count=len(all_chunks))
-        
-    import torch
-    BATCH_SIZE = 8
-    total = len(all_chunks)
-    print(f"[Ingest] Embedding {total} chunks from GitHub repo...")
-    
-    def _do_embed():
-        all_embs = []
-        for i in range(0, total, BATCH_SIZE):
-            batch = [c.content for c in all_chunks[i:i+BATCH_SIZE]]
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-            embs = _embed_model.encode(
-                batch, batch_size=BATCH_SIZE,
-                show_progress_bar=False, normalize_embeddings=True
-            )
-            all_embs.extend(embs)
-        return all_embs
-        
-    embeddings = await asyncio.to_thread(_do_embed)
-    for chunk, emb in zip(all_chunks, embeddings):
-        chunk.embedding = emb
-        
-    # Upsert
-    if db_available:
-        upsert_chunks(all_chunks)
-        update_file_status(
-            file_id, "indexed",
-            chunk_count=len(all_chunks),
-            experts_used=experts_used
-        )
-        
-    elapsed = int((time.time() - start) * 1000)
-    return {
-        "status": "indexed",
-        "file_id": file_id,
-        "repo": repo_name,
-        "total_chunks": len(all_chunks),
-        "experts_used": experts_used,
-        "latency_ms": elapsed,
-    }
-
-
-@app.get("/file/{file_id}")
-async def get_file(file_id: str):
-    """Get file status."""
-    try:
-        from engine.db import get_file_status
-        status = get_file_status(file_id)
-        if status is None:
-            raise HTTPException(status_code=404, detail="File not found")
-        # Convert UUID and datetime to string for JSON serialization
-        for k, v in status.items():
-            if hasattr(v, 'isoformat'):
-                status[k] = v.isoformat()
-            elif hasattr(v, 'hex'):
-                status[k] = str(v)
-        return status
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-
 def _shared_embed_query(query: str) -> np.ndarray:
-    """Embed a query using the shared model. Cached for repeated queries."""
-    if _embed_model is not None:
-        return _embed_model.encode(query, normalize_embeddings=True)
-    # Fallback to first available expert's model
-    for expert in _experts.values():
-        return expert.embed_query(query)
-    raise RuntimeError("No embedding model available")
+    if _embed_model is None:
+        raise HTTPException(status_code=503, detail="Embedding model not ready yet")
+    return _embed_model.encode(query, normalize_embeddings=True)
 
-# LRU cache for query embeddings (avoids re-embedding same queries)
 _embed_cache = {}
 _EMBED_CACHE_MAX = 1000
 
 def _cached_embed_query(query: str) -> np.ndarray:
-    """Embed with LRU-style cache."""
     if query in _embed_cache:
         return _embed_cache[query]
     vec = _shared_embed_query(query)
@@ -661,29 +296,32 @@ def _cached_embed_query(query: str) -> np.ndarray:
 
 @app.post("/retrieve")
 async def retrieve_endpoint(req: RetrieveRequest):
-    """Standalone vector retrieval for a single expert."""
     if req.expert_id not in _experts:
         raise HTTPException(status_code=404, detail=f"Expert {req.expert_id} not found")
-    
+
     expert = _experts[req.expert_id]
     try:
-        query_vec = _cached_embed_query(req.query)  # shared embedding
+        query_vec = _cached_embed_query(req.query)
         chunks = await asyncio.to_thread(expert.retrieve, query_vec, req.org_id, req.top_k)
-        return [
-            {
-                "chunk_id": c.chunk_id,
-                "expert_id": c.expert_id,
-                "content": c.content,
-                "metadata": c.metadata,
-            }
-            for c in chunks
-        ]
+        return {
+            "expert_id": req.expert_id,
+            "chunks": [
+                {
+                    "chunk_id": c.chunk_id,
+                    "expert_id": c.expert_id,
+                    "content": c.content,
+                    "metadata": c.metadata,
+                }
+                for c in chunks
+            ],
+            "count": len(chunks),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.post("/rerank")
 async def rerank_endpoint(req: RerankRequest):
-    """Standalone reranking for a list of chunks."""
     try:
         chunks = [
             Chunk(
@@ -710,31 +348,274 @@ async def rerank_endpoint(req: RerankRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/ingest")
+async def ingest_file(
+    file: UploadFile = File(...),
+    org_id: str = Form("default"),
+):
+    start = time.time()
+
+    try:
+        from engine.db import ensure_org, create_file, update_file_status, upsert_chunks
+        ensure_org(org_id)
+        db_available = True
+    except Exception as e:
+        print(f"[Main] [WARN] DB not available: {e}")
+        db_available = False
+
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    file_path = _safe_file_path(file.filename)
+    with open(file_path, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    ext = os.path.splitext(file.filename)[1].lower()
+
+    file_id = ""
+    if db_available:
+        file_id = create_file(org_id, file.filename, ext.lstrip("."))
+        update_file_status(file_id, "parsing")
+
+    parse_tasks = []
+    experts_to_check = []
+
+    if ext in [".pdf", ".txt", ".md"] and "text" in _experts:
+        parse_tasks.append(asyncio.to_thread(_experts["text"].parse, file_path, file_id, org_id))
+        experts_to_check.append("text")
+
+    if (ext in [".csv"] or ext == ".pdf") and "table" in _experts:
+        parse_tasks.append(asyncio.to_thread(_experts["table"].parse, file_path, file_id, org_id))
+        experts_to_check.append("table")
+
+    if (ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"] or ext == ".pdf") and "image" in _experts:
+        parse_tasks.append(asyncio.to_thread(_experts["image"].parse, file_path, file_id, org_id))
+        experts_to_check.append("image")
+
+    parse_results = await asyncio.gather(*parse_tasks, return_exceptions=True)
+
+    all_chunks = []
+    experts_used = []
+
+    for i, result in enumerate(parse_results):
+        expert_id = experts_to_check[i]
+        if isinstance(result, Exception):
+            print(f"[Ingest] [WARN] Expert {expert_id} failed: {result}")
+            continue
+        if result:
+            all_chunks.extend(result)
+            experts_used.append(expert_id)
+
+    if not all_chunks:
+        if db_available:
+            update_file_status(file_id, "failed")
+        return {"status": "no_chunks", "file_id": file_id}
+
+    if db_available:
+        update_file_status(file_id, "embedding", chunk_count=len(all_chunks))
+
+    if _embed_model is None:
+        raise HTTPException(status_code=503, detail="Embedding model not ready")
+
+    import torch
+    BATCH_SIZE = 8
+    total = len(all_chunks)
+    print(f"[Ingest] Embedding {total} chunks (batch_size={BATCH_SIZE})...")
+
+    def _do_embed():
+        all_embs = []
+        for i in range(0, total, BATCH_SIZE):
+            batch = [c.content for c in all_chunks[i:i+BATCH_SIZE]]
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            embs = _embed_model.encode(
+                batch, batch_size=BATCH_SIZE,
+                show_progress_bar=False, normalize_embeddings=True
+            )
+            all_embs.extend(embs)
+        return all_embs
+
+    embeddings = await asyncio.to_thread(_do_embed)
+
+    for chunk, emb in zip(all_chunks, embeddings):
+        chunk.embedding = emb
+
+    print(f"[Ingest] [OK] Embedded all chunks")
+
+    if db_available:
+        upsert_chunks(all_chunks)
+        update_file_status(
+            file_id, "indexed",
+            chunk_count=len(all_chunks),
+            experts_used=experts_used
+        )
+
+    elapsed = int((time.time() - start) * 1000)
+
+    return {
+        "status": "indexed",
+        "file_id": file_id,
+        "file_name": file.filename,
+        "total_chunks": len(all_chunks),
+        "experts_used": experts_used,
+        "latency_ms": elapsed,
+    }
+
+
+@app.post("/ingest/github")
+async def ingest_github(
+    repo_url: str = Form(...),
+    org_id: str = Form("default"),
+):
+    import zipfile
+    import tempfile
+
+    start = time.time()
+
+    try:
+        from engine.db import ensure_org, create_file, update_file_status, upsert_chunks
+        ensure_org(org_id)
+        db_available = True
+    except Exception as e:
+        print(f"[Main] [WARN] DB not available: {e}")
+        db_available = False
+
+    clean_url = repo_url.rstrip("/")
+    parts = clean_url.split("/")
+    if len(parts) >= 2:
+        owner = parts[-2]
+        repo_name = parts[-1]
+        zip_url = f"https://api.github.com/repos/{owner}/{repo_name}/zipball"
+    else:
+        repo_name = clean_url
+        zip_url = clean_url
+
+    file_id = ""
+    if db_available:
+        file_id = create_file(org_id, f"github_{repo_name}", "zip")
+        update_file_status(file_id, "parsing")
+
+    try:
+        resp = requests.get(zip_url, timeout=30, allow_redirects=True)
+        resp.raise_for_status()
+    except Exception as e:
+        if db_available:
+            update_file_status(file_id, "failed")
+        raise HTTPException(status_code=400, detail=f"Failed to download repo: {e}")
+
+    all_chunks = []
+    experts_used = ["code"]
+
+    from engine.experts.code import CODE_EXTENSIONS
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zip_path = os.path.join(tmpdir, "repo.zip")
+        with open(zip_path, "wb") as f:
+            f.write(resp.content)
+
+        extract_dir = os.path.join(tmpdir, "extracted")
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            zip_ref.extractall(extract_dir)
+
+        for root, _, files in os.walk(extract_dir):
+            for file in files:
+                ext = os.path.splitext(file)[1].lower()
+                if ext in CODE_EXTENSIONS:
+                    file_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(file_path, extract_dir)
+
+                    if "code" in _experts:
+                        try:
+                            chunks = await asyncio.to_thread(_experts["code"].parse, file_path, file_id, org_id)
+                            for c in chunks:
+                                c.metadata["file_path"] = rel_path
+                                c.content = c.content.replace(os.path.basename(file_path), rel_path)
+                            all_chunks.extend(chunks)
+                        except Exception as e:
+                            print(f"[Ingest] [WARN] Code expert failed on {rel_path}: {e}")
+
+    if not all_chunks:
+        if db_available:
+            update_file_status(file_id, "failed")
+        return {"status": "no_chunks", "file_id": file_id}
+
+    if db_available:
+        update_file_status(file_id, "embedding", chunk_count=len(all_chunks))
+
+    if _embed_model is None:
+        raise HTTPException(status_code=503, detail="Embedding model not ready")
+
+    import torch
+    BATCH_SIZE = 8
+    total = len(all_chunks)
+    print(f"[Ingest] Embedding {total} chunks from GitHub repo...")
+
+    def _do_embed():
+        all_embs = []
+        for i in range(0, total, BATCH_SIZE):
+            batch = [c.content for c in all_chunks[i:i+BATCH_SIZE]]
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+            embs = _embed_model.encode(
+                batch, batch_size=BATCH_SIZE,
+                show_progress_bar=False, normalize_embeddings=True
+            )
+            all_embs.extend(embs)
+        return all_embs
+
+    embeddings = await asyncio.to_thread(_do_embed)
+    for chunk, emb in zip(all_chunks, embeddings):
+        chunk.embedding = emb
+
+    if db_available:
+        upsert_chunks(all_chunks)
+        update_file_status(
+            file_id, "indexed",
+            chunk_count=len(all_chunks),
+            experts_used=experts_used
+        )
+
+    elapsed = int((time.time() - start) * 1000)
+    return {
+        "status": "indexed",
+        "file_id": file_id,
+        "repo": repo_name,
+        "total_chunks": len(all_chunks),
+        "experts_used": experts_used,
+        "latency_ms": elapsed,
+    }
+
+
+@app.get("/file/{file_id}")
+async def get_file(file_id: str):
+    try:
+        from engine.db import get_file_status
+        status = get_file_status(file_id)
+        if status is None:
+            raise HTTPException(status_code=404, detail="File not found")
+        for k, v in status.items():
+            if hasattr(v, 'isoformat'):
+                status[k] = v.isoformat()
+            elif hasattr(v, 'hex'):
+                status[k] = str(v)
+        return status
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.post("/query")
 async def query_pipeline(req: QueryRequest):
-    """
-    Full query pipeline with parallelism optimizations:
-    1. Check cache
-    2. Gate + Rewrite RACE (parallel)
-    3. Shared embed → parallel retrieve (asyncio.gather)
-    4. RRF fusion
-    5. Rerank
-    6. LLM generation
-    7. Guard + logging (parallel)
-    """
     start = time.time()
-    
-    # Cache check
+
     cache_key = f"{req.org_id}:{hashlib.md5(req.query.encode()).hexdigest()}"
     if cache_key in _query_cache:
         cached = _query_cache[cache_key]
         cached["cached"] = True
         return cached
-    
-    # ── PHASE 1: Gate + Rewrite RACE (parallel) ──────────────────────
-    # Fire gate and rewrite simultaneously; only use rewrite if gate was low
+
     loop = asyncio.get_event_loop()
-    
+
     gate_task = loop.run_in_executor(_io_pool,
         lambda: _gate.route(req.query) if _gate else {"text": 1.0})
     gate_raw_task = loop.run_in_executor(_io_pool,
@@ -742,15 +623,14 @@ async def query_pipeline(req: QueryRequest):
     _hist = req.chat_history or []
     rewrite_task = loop.run_in_executor(_io_pool,
         lambda: rewrite_query(req.query, model=req.model, chat_history=_hist))
-    
+
     gate_result, gate_raw, rewritten_query = await asyncio.gather(
         gate_task, gate_raw_task, rewrite_task
     )
-    
+
     final_query = req.query
     rewritten = None
     max_gate_conf = max(gate_raw.values()) if gate_raw else 0
-    # Always rewrite if history present (follow-ups need coreference resolution)
     needs_rewrite = max_gate_conf < 0.5 or len(req.query.split()) < 4 or bool(_hist)
     if needs_rewrite:
         if rewritten_query and rewritten_query != req.query:
@@ -758,36 +638,32 @@ async def query_pipeline(req: QueryRequest):
             rewritten = final_query
             gate_result = await loop.run_in_executor(_io_pool,
                 lambda: _gate.route(final_query) if _gate else {"text": 1.0})
-    
+
     t_gate = time.time()
     print(f"[Query] Gate+Rewrite: {int((t_gate-start)*1000)}ms (conf={max_gate_conf:.2f})")
-    
-    # ── PHASE 2: Shared embed + parallel retrieve (asyncio.gather) ───
+
     query_vec = await loop.run_in_executor(_io_pool, _cached_embed_query, final_query)
-    
+
     t_embed = time.time()
     print(f"[Query] Embed: {int((t_embed-t_gate)*1000)}ms")
-    
-    # Fire ALL retrieval tasks in parallel
+
     from engine.db import search_bm25
     retrieve_tasks = []
     retrieve_keys = []
-    
+
     for expert_id, weight in gate_result.items():
         if expert_id not in _experts:
             continue
         expert = _experts[expert_id]
-        # Vector retrieval
         retrieve_tasks.append(loop.run_in_executor(_io_pool,
             expert.retrieve, query_vec, req.org_id, req.top_k))
         retrieve_keys.append(expert_id)
-        # BM25 retrieval
         retrieve_tasks.append(loop.run_in_executor(_io_pool,
             search_bm25, final_query, req.org_id, expert_id, 15))
         retrieve_keys.append(f"{expert_id}_bm25")
-    
+
     retrieval_results = await asyncio.gather(*retrieve_tasks, return_exceptions=True)
-    
+
     expert_results = {}
     for key, result in zip(retrieve_keys, retrieval_results):
         if isinstance(result, Exception):
@@ -795,15 +671,13 @@ async def query_pipeline(req: QueryRequest):
             continue
         if result:
             expert_results[key] = result
-    
+
     t_retrieve = time.time()
-    # Debug: show what each source found
     for key, chunks in expert_results.items():
         top_sim = max((c.metadata.get("similarity", c.metadata.get("bm25_score", 0)) for c in chunks), default=0)
         print(f"[Query] {key}: {len(chunks)} chunks (top_sim={top_sim:.3f})")
     print(f"[Query] Parallel retrieve ({len(retrieve_tasks)} tasks): {int((t_retrieve-t_embed)*1000)}ms")
-    
-    # Fallback cascade if low-quality results
+
     if expert_results:
         all_sims = []
         for chunks in expert_results.values():
@@ -811,7 +685,7 @@ async def query_pipeline(req: QueryRequest):
                 sim = c.metadata.get("similarity", c.metadata.get("bm25_score", 0))
                 all_sims.append(sim)
         avg_sim = sum(all_sims) / len(all_sims) if all_sims else 0
-        
+
         if avg_sim < 0.3 and len(gate_result) < len(_experts):
             print(f"[Query] Fallback cascade (avg_sim={avg_sim:.3f})")
             fallback_tasks = []
@@ -821,28 +695,26 @@ async def query_pipeline(req: QueryRequest):
                     fallback_tasks.append(loop.run_in_executor(_io_pool,
                         expert.retrieve, query_vec, req.org_id, req.top_k))
                     fallback_keys.append(f"{expert_id}_fallback")
-            
+
             fallback_results = await asyncio.gather(*fallback_tasks, return_exceptions=True)
             for key, result in zip(fallback_keys, fallback_results):
                 if not isinstance(result, Exception) and result:
                     expert_results[key] = result
                     expert_id = key.replace("_fallback", "")
                     gate_result[expert_id] = 0.3
-    
-    # ── PHASE 3: Fuse + Rerank ───────────────────────────────────────
+
     if expert_results:
         fused_chunks = rrf_fuse(expert_results, gate_result, top_n=40)
     else:
         fused_chunks = []
-    
+
     if fused_chunks:
         fused_chunks = await loop.run_in_executor(_io_pool,
             rerank, final_query, fused_chunks, 12)
-    
+
     t_rerank = time.time()
     print(f"[Query] Fuse+Rerank: {int((t_rerank-t_retrieve)*1000)}ms")
-    
-    # Build prompt
+
     context = ""
     sources = []
     for i, chunk in enumerate(fused_chunks):
@@ -854,8 +726,7 @@ async def query_pipeline(req: QueryRequest):
             "content": chunk.content[:1000],
             "metadata": chunk.metadata,
         })
-    
-    # Build memory context from chat history
+
     history_block = ""
     if req.chat_history:
         from engine.memory import build_memory_context
@@ -866,7 +737,7 @@ async def query_pipeline(req: QueryRequest):
             history_block += "\n--- Recent Messages ---\n"
             for m in recent:
                 history_block += f"{m['role'].upper()}: {m['content'][:500]}\n"
-    
+
     system_prompt = req.system_prompt or (
         "You are a document Q&A assistant. You MUST answer ONLY using the provided sources. "
         "Do NOT use your own knowledge. Cite sources using [Source N] notation. "
@@ -874,19 +745,17 @@ async def query_pipeline(req: QueryRequest):
         "Use the conversation history for context about what was previously discussed."
     )
     full_prompt = f"{system_prompt}\n{history_block}\n--- Sources ---\n{context}\n\n--- Question ---\n{final_query}"
-    
-    # ── PHASE 4: LLM Generation ──────────────────────────────────────
+
     answer = await _generate_answer(full_prompt, req.query, req.model)
-    
+
     t_llm = time.time()
     print(f"[Query] LLM: {int((t_llm-t_rerank)*1000)}ms")
-    
-    # ── PHASE 5: Guard + Logging (parallel) ──────────────────────────
+
     guard_task = loop.run_in_executor(_io_pool,
         lambda: verify_answer(answer, [s["content"] for s in sources]))
-    
+
     elapsed = int((time.time() - start) * 1000)
-    
+
     query_log_id = None
     try:
         from engine.db import log_query
@@ -900,17 +769,17 @@ async def query_pipeline(req: QueryRequest):
         )
     except Exception as e:
         print(f"[Query] [WARN] Logging failed: {e}")
-    
+
     guard_result = None
     try:
         guard_result = await guard_task
     except Exception as e:
         print(f"[Query] [WARN] Guard failed: {e}")
-    
+
     t_end = time.time()
     total_ms = int((t_end - start) * 1000)
-    print(f"[Query] TOTAL: {total_ms}ms (gate={int((t_gate-start)*1000)} embed={int((t_embed-t_gate)*1000)} retrieve={int((t_retrieve-t_embed)*1000)} rerank={int((t_rerank-t_retrieve)*1000)} llm={int((t_llm-t_rerank)*1000)} guard={int((t_end-t_llm)*1000)})")
-    
+    print(f"[Query] TOTAL: {total_ms}ms")
+
     result = {
         "answer": answer,
         "sources": sources,
@@ -922,16 +791,14 @@ async def query_pipeline(req: QueryRequest):
         "rewritten_query": rewritten,
         "guard": guard_result,
     }
-    
+
     if len(_query_cache) < MAX_CACHE:
         _query_cache[cache_key] = result
-    
+
     return result
 
 
-# ──────────────────────────── LLM Generation ─────────────────────────
 async def _generate_answer(prompt: str, query: str, model: Optional[str] = None) -> str:
-    """Generate answer using the resolved model provider."""
     provider, api_name = _resolve_model(model)
     if provider == "ollama":
         return _generate_ollama(prompt, api_name)
@@ -942,7 +809,6 @@ async def _generate_answer(prompt: str, query: str, model: Optional[str] = None)
 
 
 def _generate_ollama(prompt: str, model: Optional[str] = None) -> str:
-    """Generate via Ollama."""
     try:
         response = requests.post(
             f"{OLLAMA_BASE_URL}/api/generate",
@@ -964,7 +830,6 @@ def _generate_ollama(prompt: str, model: Optional[str] = None) -> str:
 
 
 def _generate_groq(prompt: str, model: Optional[str] = None) -> str:
-    """Generate via Groq API."""
     try:
         response = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
@@ -1016,7 +881,6 @@ def _stream_ollama(prompt: str, model: Optional[str] = None):
 
 
 def _generate_gemini(prompt: str, model: str = "gemma-3-27b-it") -> str:
-    """Generate via Google Gemini API (for Gemma models)."""
     try:
         url = f"{GEMINI_BASE_URL}/models/{model}:generateContent?key={GEMINI_API_KEY}"
         response = requests.post(
@@ -1038,7 +902,6 @@ def _generate_gemini(prompt: str, model: str = "gemma-3-27b-it") -> str:
 
 
 def _stream_gemini(prompt: str, model: str = "gemma-3-27b-it"):
-    """Stream via Google Gemini API."""
     try:
         url = f"{GEMINI_BASE_URL}/models/{model}:streamGenerateContent?alt=sse&key={GEMINI_API_KEY}"
         response = requests.post(
@@ -1079,10 +942,8 @@ class GenerateRequest(BaseModel):
 
 @app.post("/generate/stream")
 async def generate_stream(req: GenerateRequest):
-    """Standalone SSE streaming LLM generation — used by Node.js orchestrator."""
     prompt = req.prompt
-    
-    # Inject memory context if present
+
     if req.chat_history:
         from engine.memory import build_memory_context
         summary, recent = build_memory_context(req.chat_history)
@@ -1093,9 +954,8 @@ async def generate_stream(req: GenerateRequest):
             history_block += "\n--- Recent Messages ---\n"
             for m in recent:
                 history_block += f"{m['role'].upper()}: {m['content'][:500]}\n"
-        
+
         if history_block:
-            # Insert right before "--- Sources ---" or at the start if not found
             if "--- Sources ---" in prompt:
                 prompt = prompt.replace("--- Sources ---", f"{history_block}\n--- Sources ---")
             else:
@@ -1152,7 +1012,6 @@ async def query_stream(req: QueryRequest):
     start = time.time()
     loop = asyncio.get_event_loop()
 
-    # Gate + Rewrite
     gate_task = loop.run_in_executor(_io_pool,
         lambda: _gate.route(req.query) if _gate else {"text": 1.0})
     gate_raw_task = loop.run_in_executor(_io_pool,
@@ -1160,11 +1019,11 @@ async def query_stream(req: QueryRequest):
     _hist = req.chat_history or []
     rewrite_task = loop.run_in_executor(_io_pool,
         lambda: rewrite_query(req.query, model=req.model, chat_history=_hist))
-    
+
     gate_result, gate_raw, rewritten_query = await asyncio.gather(
         gate_task, gate_raw_task, rewrite_task
     )
-    
+
     final_query = req.query
     rewritten = None
     max_gate_conf = max(gate_raw.values()) if gate_raw else 0
@@ -1173,7 +1032,6 @@ async def query_stream(req: QueryRequest):
         if rewritten_query and rewritten_query != req.query:
             final_query = rewritten_query
             rewritten = final_query
-            # Re-gate with rewritten query
             gate_result = await loop.run_in_executor(_io_pool,
                 lambda: _gate.route(final_query) if _gate else {"text": 1.0})
 
@@ -1212,8 +1070,6 @@ async def query_stream(req: QueryRequest):
         fused_chunks = await loop.run_in_executor(_io_pool,
             rerank, final_query, fused_chunks, 12)
 
-    context = ""
-    # Log query to DB
     query_log_id = None
     try:
         from engine.db import log_query
@@ -1228,6 +1084,7 @@ async def query_stream(req: QueryRequest):
     except Exception as e:
         print(f"[QueryStream] Logging failed: {e}")
 
+    context = ""
     sources = []
     for i, chunk in enumerate(fused_chunks):
         chunk_content = chunk.content[:1500] if len(chunk.content) > 1500 else chunk.content
@@ -1239,7 +1096,6 @@ async def query_stream(req: QueryRequest):
             "metadata": chunk.metadata,
         })
 
-    # Build memory context from chat history
     history_block = ""
     if req.chat_history:
         from engine.memory import build_memory_context
@@ -1311,8 +1167,6 @@ async def query_stream(req: QueryRequest):
     return StreamingResponse(sse_generator(), media_type="text/event-stream")
 
 
-# ──────────────────────────── Org Config API ─────────────────────────
-
 class OrgConfigUpdate(BaseModel):
     name: str = ""
     config: dict = {}
@@ -1339,8 +1193,6 @@ async def update_org_config(org_id: str, req: OrgConfigUpdate):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-
-# ──────────────────────────── Background Ingestion ───────────────────
 
 def _ingest_background(file_path: str, file_id: str, org_id: str, ext: str):
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -1413,6 +1265,11 @@ def _ingest_background(file_path: str, file_id: str, org_id: str, ext: str):
         _update("embedding", 50, total_chunks=len(all_chunks))
         update_file_status(file_id, "embedding", chunk_count=len(all_chunks))
 
+        if _embed_model is None:
+            update_file_status(file_id, "failed")
+            _update("failed", 100, error="Embedding model not ready")
+            return
+
         import torch
         BATCH_SIZE = 8
         total = len(all_chunks)
@@ -1433,8 +1290,7 @@ def _ingest_background(file_path: str, file_id: str, org_id: str, ext: str):
             all_embeddings.extend(batch_embs)
 
             done_pct = int(50 + (batch_end / total) * 30)
-            _update("embedding", done_pct, total_chunks=total,
-                    embedded=batch_end)
+            _update("embedding", done_pct, total_chunks=total, embedded=batch_end)
             if batch_end % (BATCH_SIZE * 10) == 0 or batch_end == total:
                 print(f"[Ingest] Embedded {batch_end}/{total}")
 
@@ -1466,7 +1322,7 @@ async def ingest_file_async(
         raise HTTPException(status_code=500, detail=f"DB error: {e}")
 
     os.makedirs(UPLOAD_DIR, exist_ok=True)
-    file_path = os.path.join(UPLOAD_DIR, file.filename)
+    file_path = _safe_file_path(file.filename)
     with open(file_path, "wb") as f:
         content = await file.read()
         f.write(content)
@@ -1494,8 +1350,6 @@ async def ingest_status(file_id: str):
     raise HTTPException(status_code=404, detail="File ID not found in ingestion queue")
 
 
-# ──────────────────────────── Feedback & Self-Healing ────────────────
-
 class FeedbackRequest(BaseModel):
     query_log_id: Optional[str] = None
     rating: int
@@ -1519,8 +1373,6 @@ async def pipeline_health(org_id: Optional[str] = None):
     return health
 
 
-# ──────────────────────────── Standalone Guard & Rewrite ─────────────
-
 class RewriteRequest(BaseModel):
     query: str
     chat_history: Optional[list[dict]] = None
@@ -1541,8 +1393,6 @@ async def guard_endpoint(req: GuardRequest):
     result = verify_answer(req.answer, req.sources)
     return result
 
-
-# ──────────────────────────── BM25 Retrieve ──────────────────────────
 
 class BM25Request(BaseModel):
     query: str
@@ -1571,7 +1421,6 @@ async def retrieve_bm25(req: BM25Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ──────────────────────────── Entry Point ────────────────────────────
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

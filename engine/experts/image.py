@@ -24,17 +24,17 @@ class ImageExpert(BaseExpert):
             self._embed_model = SentenceTransformer(EMBEDDING_MODEL)
         return self._embed_model
 
-    def parse(self, file_path: str, file_id: str = "", org_id: str = "") -> list[Chunk]:
+    def parse(self, file_path: str, file_id: str = "", org_id: str = "", config: dict = None) -> list[Chunk]:
         ext = os.path.splitext(file_path)[1].lower()
         if ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"]:
-            return self._parse_standalone_image(file_path, file_id, org_id)
+            return self._parse_standalone_image(file_path, file_id, org_id, config)
         elif ext == ".pdf":
-            return self._parse_pdf_images(file_path, file_id, org_id)
+            return self._parse_pdf_images(file_path, file_id, org_id, config)
         return []
 
-    def _parse_standalone_image(self, file_path: str, file_id: str, org_id: str) -> list[Chunk]:
+    def _parse_standalone_image(self, file_path: str, file_id: str, org_id: str, config: dict = None) -> list[Chunk]:
         b64 = self._encode_image(file_path)
-        caption = self._caption_image(b64)
+        caption = self._caption_image(b64, config)
         if not caption:
             return []
 
@@ -51,7 +51,7 @@ class ImageExpert(BaseExpert):
         print(f"[ImageExpert] Captioned standalone image: {os.path.basename(file_path)}")
         return [chunk]
 
-    def _parse_pdf_images(self, file_path: str, file_id: str, org_id: str) -> list[Chunk]:
+    def _parse_pdf_images(self, file_path: str, file_id: str, org_id: str, config: dict = None) -> list[Chunk]:
         import fitz
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -120,7 +120,7 @@ class ImageExpert(BaseExpert):
         chunks: list[Chunk] = []
 
         def caption_one(idx, page_num, w, h, b64):
-            cap = self._caption_image(b64)
+            cap = self._caption_image(b64, config)
             print(f"[ImageExpert] Captioned {idx+1}/{total} (page {page_num+1})")
             return page_num, w, h, cap
 
@@ -157,17 +157,43 @@ class ImageExpert(BaseExpert):
         with open(file_path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
 
-    def _caption_image(self, b64_image: str) -> str:
+    def _caption_image(self, b64_image: str, config: dict = None) -> str:
         prompt = (
             "Describe this image in detail. Include all visible text, labels, "
             "data values, diagram elements, and any structural information. "
             "Be thorough and factual."
         )
         try:
+            config = config or {}
+            image_model = config.get("models", {}).get("imageModel")
+            
+            from engine.main import _resolve_model
+            provider, api_name = _resolve_model(image_model)
+            
+            if provider == "gemini" and config.get("geminiApiKey"):
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{api_name}:generateContent?key={config.get('geminiApiKey')}"
+                resp = requests.post(
+                    url,
+                    json={
+                        "contents": [{
+                            "parts": [
+                                {"text": prompt},
+                                {"inline_data": {"mime_type": "image/png", "data": b64_image}}
+                            ]
+                        }],
+                        "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1024}
+                    },
+                    timeout=120
+                )
+                if resp.status_code == 200:
+                    return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    
+            # Fallback to Ollama
+            api_name = api_name if provider == "ollama" else OLLAMA_VISION_MODEL
             resp = requests.post(
                 f"{OLLAMA_BASE_URL}/api/generate",
                 json={
-                    "model": OLLAMA_VISION_MODEL,
+                    "model": api_name,
                     "prompt": prompt,
                     "images": [b64_image],
                     "stream": False,

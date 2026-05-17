@@ -33,12 +33,14 @@ def rewrite_query(query: str, model: str = None, chat_history: list = None) -> s
 
     prompt = (
         f"{history_context}"
-        "Rewrite this search query to be more specific and detailed for document retrieval. "
-        "If the query references previous conversation context (e.g., 'what about X', "
-        "'and for Y', 'compare it with', 'tell me more'), resolve those references "
-        "into a complete, self-contained query. "
-        "Preserve the original intent but add clarity. Return ONLY the rewritten query, nothing else.\n\n"
-        f"Original: {query}"
+        "You are an AI search assistant. Your ONLY job is to rewrite the user's latest query to make it fully self-contained based on the recent conversation.\n"
+        "RULES:\n"
+        "1. DO NOT answer the question.\n"
+        "2. DO NOT change the core intent.\n"
+        "3. DO NOT drop important keywords.\n"
+        "4. DO NOT add conversational filler (like 'Here is the rewritten query:').\n"
+        "5. ONLY return the rewritten query text.\n\n"
+        f"Original Query: {query}"
     )
 
 

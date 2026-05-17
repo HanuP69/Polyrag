@@ -1,14 +1,10 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import "./index.css";
-import { queryStream, uploadFile, uploadGithub, getIngestStatus, submitFeedback, getPipelineHealth, getModels } from "./api";
+import { queryStream, uploadFile, uploadGithub, getIngestStatus, submitFeedback, getPipelineHealth, getModels, getConfig, updateConfig, getFiles, deleteFile } from "./api";
 import Login from "./Login";
 import { supabase } from "./supabaseClient";
 
 function MainApp({ session }) {
-  // Use session.user.id implicitly via api.js auth headers
-  // But we might need to pass it to the UI if we want to show email or logout button.
-  
-  // existing code for App ...
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -18,12 +14,28 @@ function MainApp({ session }) {
   const [dragging, setDragging] = useState(false);
   const [model, setModel] = useState("llama3.2:3b");
   const [modelRegistry, setModelRegistry] = useState({});
+  const [showSettings, setShowSettings] = useState(false);
+  const [config, setConfig] = useState({
+    useLlmText: false,
+    useLlmCode: false,
+    imageModel: "llava:7b",
+    tableModel: "llama3.2:3b",
+    enablePlanner: false,
+    groqApiKey: "",
+    geminiApiKey: ""
+  });
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
 
   useEffect(() => {
     getPipelineHealth().then(setHealth).catch(() => {});
     getModels().then((data) => setModelRegistry(data.models || {})).catch(() => {});
+    getConfig().then((data) => {
+      if (data && data.config) setConfig(data.config);
+    }).catch(() => {});
+    getFiles().then(data => {
+      if (Array.isArray(data)) setFiles(data);
+    }).catch(() => {});
     const interval = setInterval(() => {
       getPipelineHealth().then(setHealth).catch(() => {});
     }, 30000);
@@ -33,6 +45,16 @@ function MainApp({ session }) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const handleConfigChange = async (key, value) => {
+    const newConfig = { ...config, [key]: value };
+    setConfig(newConfig);
+    try {
+      await updateConfig(newConfig);
+    } catch (err) {
+      console.error("Failed to update config:", err);
+    }
+  };
 
   const handleSubmit = useCallback(async (e) => {
     e?.preventDefault();
@@ -122,7 +144,7 @@ function MainApp({ session }) {
       setFiles((prev) => [...prev, entry]);
 
       try {
-        const result = await uploadFile(file);
+      const result = await uploadFile(file, "default");
         const fileId = result.file_id;
 
         setFiles((prev) =>
@@ -167,7 +189,7 @@ function MainApp({ session }) {
     setFiles((prev) => [...prev, entry]);
 
     try {
-      const result = await uploadGithub(repoUrl);
+      const result = await uploadGithub(repoUrl, "default");
       const fileId = result.file_id;
 
       setFiles((prev) =>
@@ -219,6 +241,16 @@ function MainApp({ session }) {
     setDragging(false);
     handleFileUpload(e.dataTransfer.files);
   }, [handleFileUpload]);
+
+  const handleDeleteFile = useCallback(async (fileId) => {
+    if (!fileId) return;
+    try {
+      await deleteFile(fileId);
+      setFiles((prev) => prev.filter((f) => f.id !== fileId));
+    } catch (err) {
+      console.error("Failed to delete file:", err);
+    }
+  }, []);
 
   const getFileIcon = (name) => {
     const ext = name.split(".").pop().toLowerCase();
@@ -272,13 +304,108 @@ function MainApp({ session }) {
             )}
           </select>
           {health && (
-            <div className="health-badge">
+            <div className="health-badge" style={{ marginRight: "1rem" }}>
               <div className="health-dot"></div>
               {health.total_queries} queries · {Math.round(health.avg_latency_ms)}ms avg
             </div>
           )}
+          <button 
+            onClick={() => setShowSettings(true)}
+            style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text)", fontSize: "12px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
+          >
+            ⚙️ Settings
+          </button>
         </div>
       </header>
+
+      {showSettings && (
+        <div className="modal-overlay" onClick={() => setShowSettings(false)} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.7)", zIndex: 1000, display: "flex", justifyContent: "center", alignItems: "center" }}>
+          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ background: "var(--bg-card)", border: "1px solid var(--border)", padding: "2rem", borderRadius: "12px", width: "500px", maxWidth: "90vw", maxHeight: "90vh", overflowY: "auto" }}>
+            <h2 style={{ margin: "0 0 1.5rem 0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              Configuration
+              <button onClick={() => setShowSettings(false)} style={{ background: "none", border: "none", color: "var(--text)", cursor: "pointer", fontSize: "1.2rem" }}>×</button>
+            </h2>
+
+            <div style={{ marginBottom: "2rem" }}>
+              <h3 style={{ fontSize: "1rem", marginBottom: "1rem", borderBottom: "1px solid var(--border)", paddingBottom: "0.5rem" }}>API Keys</h3>
+              <div style={{ marginBottom: "1rem" }}>
+                <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.3rem", color: "var(--text-muted)" }}>Groq API Key</label>
+                <input type="password" value={config.groqApiKey || ""} onChange={e => handleConfigChange("groqApiKey", e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-main)", color: "var(--text)" }} placeholder="gsk_..." />
+              </div>
+              <div>
+                <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.3rem", color: "var(--text-muted)" }}>Gemini API Key</label>
+                <input type="password" value={config.geminiApiKey || ""} onChange={e => handleConfigChange("geminiApiKey", e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-main)", color: "var(--text)" }} placeholder="AIza..." />
+              </div>
+            </div>
+
+            <div style={{ marginBottom: "2rem" }}>
+              <h3 style={{ fontSize: "1rem", marginBottom: "1rem", borderBottom: "1px solid var(--border)", paddingBottom: "0.5rem" }}>Ingestion Parsing</h3>
+              
+              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.3rem", color: "var(--text-muted)" }}>Image Vision Model</label>
+                  <select value={config.imageModel || "llava:latest"} onChange={e => handleConfigChange("imageModel", e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-main)", color: "var(--text)" }}>
+                    {Object.entries(modelRegistry).map(([id, m]) => (
+                      <option key={id} value={id}>{m.display}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.3rem", color: "var(--text-muted)" }}>Code Expert Model</label>
+                  <select value={config.codeModel || "llama3.2:3b"} onChange={e => handleConfigChange("codeModel", e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-main)", color: "var(--text)" }}>
+                    {Object.entries(modelRegistry).filter(([id, m]) => m.caps && m.caps.includes("text")).map(([id, m]) => (
+                      <option key={id} value={id}>{m.display}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <label style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "1rem", cursor: "pointer" }}>
+                <input type="checkbox" checked={config.useLlmText} onChange={e => handleConfigChange("useLlmText", e.target.checked)} />
+                <span style={{ fontSize: "0.9rem" }}>Deep LLM Parsing for Text (Slower)</span>
+              </label>
+              {config.useLlmText && (
+                <div style={{ marginBottom: "1rem", paddingLeft: "1.5rem" }}>
+                  <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.3rem", color: "var(--text-muted)" }}>Text Expert Model</label>
+                  <select value={config.textModel || "llama3.2:3b"} onChange={e => handleConfigChange("textModel", e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-main)", color: "var(--text)" }}>
+                    {Object.entries(modelRegistry).filter(([id, m]) => m.caps && m.caps.includes("text")).map(([id, m]) => (
+                      <option key={id} value={id}>{m.display}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <label style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "1rem", cursor: "pointer" }}>
+                <input type="checkbox" checked={config.useLlmCode} onChange={e => handleConfigChange("useLlmCode", e.target.checked)} />
+                <span style={{ fontSize: "0.9rem" }}>Deep LLM Parsing for Code (Slower)</span>
+              </label>
+
+              <label style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "1rem", cursor: "pointer" }}>
+                <input type="checkbox" checked={config.useLlmTable} onChange={e => handleConfigChange("useLlmTable", e.target.checked)} />
+                <span style={{ fontSize: "0.9rem" }}>Deep LLM Parsing for Tables (Slower)</span>
+              </label>
+              {config.useLlmTable && (
+                <div style={{ marginBottom: "1rem", paddingLeft: "1.5rem" }}>
+                  <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.3rem", color: "var(--text-muted)" }}>Table Expert Model</label>
+                  <select value={config.tableModel || "llama3.2:3b"} onChange={e => handleConfigChange("tableModel", e.target.value)} style={{ width: "100%", padding: "8px", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-main)", color: "var(--text)" }}>
+                    {Object.entries(modelRegistry).filter(([id, m]) => m.caps && m.caps.includes("text")).map(([id, m]) => (
+                      <option key={id} value={id}>{m.display}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div>
+              <h3 style={{ fontSize: "1rem", marginBottom: "1rem", borderBottom: "1px solid var(--border)", paddingBottom: "0.5rem" }}>Query Options</h3>
+              <label style={{ display: "flex", alignItems: "center", gap: "10px", cursor: "pointer" }}>
+                <input type="checkbox" checked={config.enablePlanner} onChange={e => handleConfigChange("enablePlanner", e.target.checked)} />
+                <span style={{ fontSize: "0.9rem" }}>Enable Context-Based Planner Expert (Higher Latency, Higher Accuracy)</span>
+              </label>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="main-content">
         <aside className="sidebar">
@@ -357,12 +484,20 @@ function MainApp({ session }) {
                   <div className="file-card" key={i} style={{ flexDirection: "column", alignItems: "stretch", gap: "6px" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                       <div className="file-icon">{getFileIcon(file.name)}</div>
-                      <div className="file-info" style={{ flex: 1 }}>
-                        <div className="file-name">{file.name}</div>
+                      <div className="file-info" style={{ flex: 1, overflow: "hidden" }}>
+                        <div className="file-name" style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{file.name}</div>
                         <div className={`file-status ${file.status}`}>
                           {file.status}
                           {file.total_chunks ? ` · ${file.total_chunks} chunks` : ""}
                         </div>
+                      </div>
+                      <div 
+                        className="delete-file-btn" 
+                        onClick={() => handleDeleteFile(file.id)}
+                        style={{ cursor: "pointer", opacity: 0.6, fontSize: "14px", padding: "4px" }}
+                        title="Remove file from database"
+                      >
+                        ❌
                       </div>
                     </div>
 

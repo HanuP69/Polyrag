@@ -31,7 +31,7 @@ class TextExpert(BaseExpert):
             self._embed_model = SentenceTransformer(EMBEDDING_MODEL)
         return self._embed_model
     
-    def parse(self, file_path: str, file_id: str = "", org_id: str = "") -> list[Chunk]:
+    def parse(self, file_path: str, file_id: str = "", org_id: str = "", config: dict = None) -> list[Chunk]:
         """
         Extract text chunks from a PDF file.
         
