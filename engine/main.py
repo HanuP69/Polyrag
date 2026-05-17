@@ -8,7 +8,8 @@ import asyncio
 import uuid as uuid_lib
 from typing import Optional
 from contextlib import asynccontextmanager
-from functools import lru_cache
+import threading
+from engine.utils import resolve_model
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
@@ -149,17 +150,7 @@ async def health():
     }
 
 
-from engine.config import MODEL_REGISTRY
-
-def _resolve_model(model_key: str = None) -> tuple:
-    if model_key and model_key in MODEL_REGISTRY:
-        entry = MODEL_REGISTRY[model_key]
-        return entry["provider"], entry["api_name"]
-    if model_key:
-        if "groq" in model_key.lower() or "gemma2" in model_key.lower():
-            return "groq", model_key
-        return "ollama", model_key
-    return ("ollama", OLLAMA_MODEL) if TESTING else ("groq", GROQ_MODEL)
+_resolve_model = resolve_model
 
 
 @app.get("/models")
@@ -284,13 +275,20 @@ def _shared_embed_query(query: str) -> np.ndarray:
 
 _embed_cache = {}
 _EMBED_CACHE_MAX = 1000
+_embed_cache_lock = threading.Lock()
 
 def _cached_embed_query(query: str) -> np.ndarray:
-    if query in _embed_cache:
-        return _embed_cache[query]
+    with _embed_cache_lock:
+        if query in _embed_cache:
+            return _embed_cache[query]
     vec = _shared_embed_query(query)
-    if len(_embed_cache) < _EMBED_CACHE_MAX:
-        _embed_cache[query] = vec
+    with _embed_cache_lock:
+        if len(_embed_cache) < _EMBED_CACHE_MAX:
+            _embed_cache[query] = vec
+        else:
+            oldest = next(iter(_embed_cache))
+            del _embed_cache[oldest]
+            _embed_cache[query] = vec
     return vec
 
 
@@ -608,7 +606,8 @@ async def get_file(file_id: str):
 async def query_pipeline(req: QueryRequest):
     start = time.time()
 
-    cache_key = f"{req.org_id}:{hashlib.md5(req.query.encode()).hexdigest()}"
+    _hist_hash = hashlib.md5(str(req.chat_history).encode()).hexdigest()[:8]
+    cache_key = f"{req.org_id}:{req.model}:{_hist_hash}:{hashlib.md5(req.query.encode()).hexdigest()}"
     if cache_key in _query_cache:
         cached = _query_cache[cache_key]
         cached["cached"] = True
@@ -800,12 +799,13 @@ async def query_pipeline(req: QueryRequest):
 
 async def _generate_answer(prompt: str, query: str, model: Optional[str] = None) -> str:
     provider, api_name = _resolve_model(model)
+    loop = asyncio.get_event_loop()
     if provider == "ollama":
-        return _generate_ollama(prompt, api_name)
+        return await loop.run_in_executor(_io_pool, _generate_ollama, prompt, api_name)
     elif provider == "gemini":
-        return _generate_gemini(prompt, api_name)
+        return await loop.run_in_executor(_io_pool, _generate_gemini, prompt, api_name)
     else:
-        return _generate_groq(prompt, api_name)
+        return await loop.run_in_executor(_io_pool, _generate_groq, prompt, api_name)
 
 
 def _generate_ollama(prompt: str, model: Optional[str] = None) -> str:

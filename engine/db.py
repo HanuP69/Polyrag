@@ -1,6 +1,7 @@
 import json
 import os
 import uuid
+import threading
 from typing import Optional
 import numpy as np
 
@@ -16,7 +17,8 @@ from engine.experts.base import Chunk
 SQLITE_PATH = os.path.join(DATA_DIR, "polyrag.db")
 
 _sqlite_conn = None
-_pg_pool = None
+_sqlite_lock = threading.Lock()
+_pg_local = threading.local()
 
 
 def _serialize_vector(vec: np.ndarray) -> bytes:
@@ -49,15 +51,16 @@ def _get_pg():
     import psycopg2
     import psycopg2.extras
     from pgvector.psycopg2 import register_vector
-    global _pg_pool
-    if _pg_pool is None:
-        _pg_pool = psycopg2.connect(DATABASE_URL)
-        _pg_pool.autocommit = False
-        with _pg_pool.cursor() as cur:
+    conn = getattr(_pg_local, 'conn', None)
+    if conn is None or conn.closed:
+        conn = psycopg2.connect(DATABASE_URL)
+        conn.autocommit = False
+        with conn.cursor() as cur:
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
-        _pg_pool.commit()
-        register_vector(_pg_pool)
-    return _pg_pool
+        conn.commit()
+        register_vector(conn)
+        _pg_local.conn = conn
+    return conn
 
 
 def init_db():
@@ -69,63 +72,64 @@ def init_db():
 
 def _init_sqlite():
     conn = _get_sqlite()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS orgs (
-            org_id      TEXT PRIMARY KEY,
-            name        TEXT NOT NULL,
-            config      TEXT NOT NULL DEFAULT '{}'
-        );
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS files (
-            file_id     TEXT PRIMARY KEY,
-            org_id      TEXT REFERENCES orgs(org_id),
-            name        TEXT NOT NULL,
-            type        TEXT NOT NULL,
-            status      TEXT NOT NULL DEFAULT 'uploading',
-            chunk_count INTEGER DEFAULT 0,
-            experts_used TEXT DEFAULT '[]',
-            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS chunks (
-            chunk_id    TEXT PRIMARY KEY,
-            org_id      TEXT REFERENCES orgs(org_id),
-            file_id     TEXT REFERENCES files(file_id),
-            expert_id   TEXT NOT NULL,
-            content     TEXT NOT NULL,
-            metadata    TEXT NOT NULL DEFAULT '{}',
-            embedding   BLOB,
-            created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
-    conn.execute("""
-        CREATE INDEX IF NOT EXISTS idx_chunks_org_expert
-        ON chunks (org_id, expert_id);
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS query_logs (
-            log_id        TEXT PRIMARY KEY,
-            org_id        TEXT REFERENCES orgs(org_id),
-            query         TEXT NOT NULL,
-            gate_weights  TEXT,
-            experts_fired TEXT,
-            chunk_ids     TEXT,
-            latency_ms    INTEGER,
-            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS user_feedback (
-            feedback_id   TEXT PRIMARY KEY,
-            query_log_id  TEXT REFERENCES query_logs(log_id),
-            rating        INTEGER,
-            correct_expert TEXT,
-            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        );
-    """)
-    conn.commit()
+    with _sqlite_lock:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS orgs (
+                org_id      TEXT PRIMARY KEY,
+                name        TEXT NOT NULL,
+                config      TEXT NOT NULL DEFAULT '{}'
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS files (
+                file_id     TEXT PRIMARY KEY,
+                org_id      TEXT REFERENCES orgs(org_id),
+                name        TEXT NOT NULL,
+                type        TEXT NOT NULL,
+                status      TEXT NOT NULL DEFAULT 'uploading',
+                chunk_count INTEGER DEFAULT 0,
+                experts_used TEXT DEFAULT '[]',
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS chunks (
+                chunk_id    TEXT PRIMARY KEY,
+                org_id      TEXT REFERENCES orgs(org_id),
+                file_id     TEXT REFERENCES files(file_id),
+                expert_id   TEXT NOT NULL,
+                content     TEXT NOT NULL,
+                metadata    TEXT NOT NULL DEFAULT '{}',
+                embedding   BLOB,
+                created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_chunks_org_expert
+            ON chunks (org_id, expert_id);
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS query_logs (
+                log_id        TEXT PRIMARY KEY,
+                org_id        TEXT REFERENCES orgs(org_id),
+                query         TEXT NOT NULL,
+                gate_weights  TEXT,
+                experts_fired TEXT,
+                chunk_ids     TEXT,
+                latency_ms    INTEGER,
+                created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_feedback (
+                feedback_id   TEXT PRIMARY KEY,
+                query_log_id  TEXT REFERENCES query_logs(log_id),
+                rating        INTEGER,
+                correct_expert TEXT,
+                created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        conn.commit()
     print(f"[DB] [OK] SQLite schema initialized at {SQLITE_PATH}")
 
 
@@ -201,11 +205,12 @@ def _init_pg():
 def ensure_org(org_id: str, name: str = "default") -> str:
     conn = get_conn()
     if TESTING:
-        conn.execute(
-            "INSERT OR IGNORE INTO orgs (org_id, name) VALUES (?, ?)",
-            (org_id, name)
-        )
-        conn.commit()
+        with _sqlite_lock:
+            conn.execute(
+                "INSERT OR IGNORE INTO orgs (org_id, name) VALUES (?, ?)",
+                (org_id, name)
+            )
+            conn.commit()
     else:
         cur = conn.cursor()
         cur.execute(
@@ -236,11 +241,12 @@ def update_org_config(org_id: str, name: str, config: dict):
     conn = get_conn()
     ensure_org(org_id)
     if TESTING:
-        conn.execute(
-            "UPDATE orgs SET name = ?, config = ? WHERE org_id = ?",
-            (name, json.dumps(config), org_id)
-        )
-        conn.commit()
+        with _sqlite_lock:
+            conn.execute(
+                "UPDATE orgs SET name = ?, config = ? WHERE org_id = ?",
+                (name, json.dumps(config), org_id)
+            )
+            conn.commit()
     else:
         cur = conn.cursor()
         cur.execute(
@@ -287,37 +293,39 @@ def get_files_by_org(org_id: str) -> list:
             } for r in rows
         ]
 
+
 def delete_file(org_id: str, file_id: str) -> bool:
     conn = get_conn()
     if TESTING:
-        # Check if the file belongs to the org
-        row = conn.execute("SELECT file_id FROM files WHERE org_id = ? AND file_id = ?", (org_id, file_id)).fetchone()
-        if not row:
-            return False
-            
-        conn.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
-        conn.execute("DELETE FROM files WHERE file_id = ?", (file_id,))
-        conn.commit()
+        with _sqlite_lock:
+            row = conn.execute("SELECT file_id FROM files WHERE org_id = ? AND file_id = ?", (org_id, file_id)).fetchone()
+            if not row:
+                return False
+            conn.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
+            conn.execute("DELETE FROM files WHERE file_id = ?", (file_id,))
+            conn.commit()
         return True
     else:
         cur = conn.cursor()
         cur.execute("SELECT file_id FROM files WHERE org_id = %s AND file_id = %s", (org_id, file_id))
         if not cur.fetchone():
             return False
-            
         cur.execute("DELETE FROM chunks WHERE file_id = %s", (file_id,))
         cur.execute("DELETE FROM files WHERE file_id = %s", (file_id,))
         conn.commit()
         return True
+
+
 def create_file(org_id: str, name: str, file_type: str) -> str:
     conn = get_conn()
     file_id = str(uuid.uuid4())
     if TESTING:
-        conn.execute(
-            "INSERT INTO files (file_id, org_id, name, type, status) VALUES (?, ?, ?, ?, 'uploading')",
-            (file_id, org_id, name, file_type)
-        )
-        conn.commit()
+        with _sqlite_lock:
+            conn.execute(
+                "INSERT INTO files (file_id, org_id, name, type, status) VALUES (?, ?, ?, ?, 'uploading')",
+                (file_id, org_id, name, file_type)
+            )
+            conn.commit()
     else:
         cur = conn.cursor()
         cur.execute(
@@ -340,8 +348,9 @@ def update_file_status(file_id: str, status: str, chunk_count: int = None, exper
             updates.append("experts_used = ?")
             params.append(json.dumps(experts_used))
         params.append(file_id)
-        conn.execute(f"UPDATE files SET {', '.join(updates)} WHERE file_id = ?", params)
-        conn.commit()
+        with _sqlite_lock:
+            conn.execute(f"UPDATE files SET {', '.join(updates)} WHERE file_id = ?", params)
+            conn.commit()
     else:
         cur = conn.cursor()
         updates = ["status = %s"]
@@ -376,7 +385,6 @@ def upsert_chunks(chunks: list[Chunk]):
         return
 
     conn = get_conn()
-    inserted = 0
 
     valid_chunks = [c for c in chunks if c.embedding is not None]
     if not valid_chunks:
@@ -385,28 +393,27 @@ def upsert_chunks(chunks: list[Chunk]):
 
     if TESTING:
         data = [
-            (c.chunk_id, c.org_id, c.file_id, c.expert_id, c.content, 
+            (c.chunk_id, c.org_id, c.file_id, c.expert_id, c.content,
              json.dumps(c.metadata) if isinstance(c.metadata, dict) else c.metadata,
              _serialize_vector(c.embedding))
             for c in valid_chunks
         ]
-        conn.executemany(
-            """INSERT OR REPLACE INTO chunks
-               (chunk_id, org_id, file_id, expert_id, content, metadata, embedding)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            data
-        )
-        conn.commit()
-        inserted = len(data)
+        with _sqlite_lock:
+            conn.executemany(
+                """INSERT OR REPLACE INTO chunks
+                   (chunk_id, org_id, file_id, expert_id, content, metadata, embedding)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                data
+            )
+            conn.commit()
     else:
         cur = conn.cursor()
         data = [
-            (c.chunk_id, c.org_id, c.file_id, c.expert_id, c.content, 
+            (c.chunk_id, c.org_id, c.file_id, c.expert_id, c.content,
              json.dumps(c.metadata) if isinstance(c.metadata, dict) else c.metadata,
              c.embedding.tolist())
             for c in valid_chunks
         ]
-        
         if execute_values:
             execute_values(
                 cur,
@@ -418,7 +425,6 @@ def upsert_chunks(chunks: list[Chunk]):
                 data
             )
         else:
-            # Fallback if execute_values is missing
             cur.executemany(
                 """INSERT INTO chunks
                    (chunk_id, org_id, file_id, expert_id, content, metadata, embedding)
@@ -428,9 +434,8 @@ def upsert_chunks(chunks: list[Chunk]):
                 data
             )
         conn.commit()
-        inserted = len(data)
 
-    print(f"[DB] [OK] Bulk upserted {inserted} chunks")
+    print(f"[DB] [OK] Bulk upserted {len(valid_chunks)} chunks")
 
 
 def search_chunks(
@@ -440,7 +445,6 @@ def search_chunks(
     top_k: int = 10
 ) -> list[Chunk]:
     conn = get_conn()
-
     if TESTING:
         return _search_sqlite(conn, query_vec, org_id, expert_id, top_k)
     else:
@@ -462,25 +466,42 @@ def _search_sqlite(conn, query_vec, org_id, expert_id, top_k):
         return []
     query_vec_normalized = query_vec / query_norm
 
-    results = []
+    chunk_list = []
+    embeddings = []
     for row in rows:
-        embedding = _deserialize_vector(row["embedding"])
-        emb_norm = np.linalg.norm(embedding)
-        if emb_norm == 0:
+        emb = _deserialize_vector(row["embedding"])
+        if emb is None or len(emb) == 0:
             continue
-        similarity = float(np.dot(query_vec_normalized, embedding / emb_norm))
+        chunk_list.append(row)
+        embeddings.append(emb)
+
+    if not embeddings:
+        return []
+
+    emb_matrix = np.stack(embeddings).astype(np.float32)
+    norms = np.linalg.norm(emb_matrix, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1.0, norms)
+    emb_matrix = emb_matrix / norms
+
+    similarities = emb_matrix @ query_vec_normalized
+
+    top_indices = np.argpartition(similarities, max(-top_k, -len(similarities)))[-top_k:]
+    top_indices = top_indices[np.argsort(similarities[top_indices])[::-1]]
+
+    results = []
+    for idx in top_indices:
+        row = chunk_list[idx]
         metadata = row["metadata"]
         if isinstance(metadata, str):
             metadata = json.loads(metadata)
+        metadata["similarity"] = float(similarities[idx])
         chunk = Chunk(
             chunk_id=row["chunk_id"], org_id=row["org_id"], file_id=row["file_id"],
             expert_id=row["expert_id"], content=row["content"], metadata=metadata,
         )
-        chunk.metadata["similarity"] = similarity
-        results.append((similarity, chunk))
+        results.append(chunk)
 
-    results.sort(key=lambda x: x[0], reverse=True)
-    return [chunk for _, chunk in results[:top_k]]
+    return results
 
 
 def _search_pgvector(conn, query_vec, org_id, expert_id, top_k):
@@ -515,7 +536,6 @@ def search_bm25(
     top_k: int = 5
 ) -> list[Chunk]:
     conn = get_conn()
-
     if TESTING:
         return _search_bm25_sqlite(conn, query, org_id, expert_id, top_k)
     else:
@@ -526,6 +546,7 @@ def _search_bm25_sqlite(conn, query, org_id, expert_id, top_k):
     keywords = query.lower().split()
     if not keywords:
         return []
+
     rows = conn.execute(
         """SELECT chunk_id, org_id, file_id, expert_id, content, metadata
            FROM chunks WHERE org_id = ? AND expert_id = ?""",
@@ -534,23 +555,51 @@ def _search_bm25_sqlite(conn, query, org_id, expert_id, top_k):
     if not rows:
         return []
 
+    try:
+        from rank_bm25 import BM25Okapi
+        tokenized_corpus = [row["content"].lower().split() for row in rows]
+        bm25 = BM25Okapi(tokenized_corpus)
+        scores = bm25.get_scores(keywords)
+    except ImportError:
+        scores = _tfidf_scores(keywords, [row["content"] for row in rows])
+
     scored = []
-    for row in rows:
-        content_lower = row["content"].lower()
-        score = sum(1 for kw in keywords if kw in content_lower) / len(keywords)
-        if score > 0:
+    for i, row in enumerate(rows):
+        if scores[i] > 0:
             metadata = row["metadata"]
             if isinstance(metadata, str):
                 metadata = json.loads(metadata)
-            metadata["bm25_score"] = score
+            metadata["bm25_score"] = float(scores[i])
             chunk = Chunk(
                 chunk_id=row["chunk_id"], org_id=row["org_id"], file_id=row["file_id"],
                 expert_id=row["expert_id"], content=row["content"], metadata=metadata,
             )
-            scored.append((score, chunk))
+            scored.append((float(scores[i]), chunk))
 
     scored.sort(key=lambda x: x[0], reverse=True)
     return [chunk for _, chunk in scored[:top_k]]
+
+
+def _tfidf_scores(keywords: list[str], docs: list[str]) -> list[float]:
+    import math
+    N = len(docs)
+    tokenized = [d.lower().split() for d in docs]
+    df = {}
+    for tokens in tokenized:
+        for kw in set(keywords):
+            if kw in tokens:
+                df[kw] = df.get(kw, 0) + 1
+
+    scores = []
+    for tokens in tokenized:
+        total = len(tokens) or 1
+        score = 0.0
+        for kw in keywords:
+            tf = tokens.count(kw) / total
+            idf = math.log((N + 1) / (df.get(kw, 0) + 1))
+            score += tf * idf
+        scores.append(score)
+    return scores
 
 
 def _search_bm25_pg(conn, query, org_id, expert_id, top_k):
@@ -589,13 +638,14 @@ def log_query(
     conn = get_conn()
     log_id = str(uuid.uuid4())
     if TESTING:
-        conn.execute(
-            """INSERT INTO query_logs (log_id, org_id, query, gate_weights, experts_fired, chunk_ids, latency_ms)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (log_id, org_id, query, json.dumps(gate_weights),
-             json.dumps(experts_fired), json.dumps(chunk_ids), latency_ms)
-        )
-        conn.commit()
+        with _sqlite_lock:
+            conn.execute(
+                """INSERT INTO query_logs (log_id, org_id, query, gate_weights, experts_fired, chunk_ids, latency_ms)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (log_id, org_id, query, json.dumps(gate_weights),
+                 json.dumps(experts_fired), json.dumps(chunk_ids), latency_ms)
+            )
+            conn.commit()
     else:
         cur = conn.cursor()
         cur.execute(
@@ -612,12 +662,13 @@ def save_feedback(query_log_id: str, rating: int, correct_expert: str = None):
     conn = get_conn()
     feedback_id = str(uuid.uuid4())
     if TESTING:
-        conn.execute(
-            """INSERT INTO user_feedback (feedback_id, query_log_id, rating, correct_expert)
-               VALUES (?, ?, ?, ?)""",
-            (feedback_id, query_log_id, rating, correct_expert)
-        )
-        conn.commit()
+        with _sqlite_lock:
+            conn.execute(
+                """INSERT INTO user_feedback (feedback_id, query_log_id, rating, correct_expert)
+                   VALUES (?, ?, ?, ?)""",
+                (feedback_id, query_log_id, rating, correct_expert)
+            )
+            conn.commit()
     else:
         cur = conn.cursor()
         cur.execute(
@@ -649,8 +700,9 @@ def get_chunk_count(org_id: str, expert_id: str = None) -> int:
 def delete_file_chunks(file_id: str):
     conn = get_conn()
     if TESTING:
-        conn.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
-        conn.commit()
+        with _sqlite_lock:
+            conn.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
+            conn.commit()
     else:
         cur = conn.cursor()
         cur.execute("DELETE FROM chunks WHERE file_id = %s", (file_id,))

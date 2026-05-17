@@ -1,8 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import "./index.css";
 import { queryStream, uploadFile, uploadGithub, getIngestStatus, submitFeedback, getPipelineHealth, getModels, getConfig, updateConfig, getFiles, deleteFile } from "./api";
-import Login from "./Login";
-import { supabase } from "./supabaseClient";
 
 function MainApp({ session }) {
   const [messages, setMessages] = useState([]);
@@ -28,16 +26,16 @@ function MainApp({ session }) {
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    getPipelineHealth().then(setHealth).catch(() => {});
-    getModels().then((data) => setModelRegistry(data.models || {})).catch(() => {});
+    getPipelineHealth().then(setHealth).catch(() => { });
+    getModels().then((data) => setModelRegistry(data.models || {})).catch(() => { });
     getConfig().then((data) => {
       if (data && data.config) setConfig(data.config);
-    }).catch(() => {});
+    }).catch(() => { });
     getFiles().then(data => {
       if (Array.isArray(data)) setFiles(data);
-    }).catch(() => {});
+    }).catch(() => { });
     const interval = setInterval(() => {
-      getPipelineHealth().then(setHealth).catch(() => {});
+      getPipelineHealth().then(setHealth).catch(() => { });
     }, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -144,7 +142,7 @@ function MainApp({ session }) {
       setFiles((prev) => [...prev, entry]);
 
       try {
-      const result = await uploadFile(file, "default");
+        const result = await uploadFile(file, "default");
         const fileId = result.file_id;
 
         setFiles((prev) =>
@@ -271,9 +269,9 @@ function MainApp({ session }) {
           </div>
         </div>
         <div className="header-right">
-          <select 
-            className="model-select" 
-            value={model} 
+          <select
+            className="model-select"
+            value={model}
             onChange={(e) => setModel(e.target.value)}
             title="Select Model"
             style={{ marginRight: "1rem", padding: "6px 10px", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text)", fontSize: "12px", cursor: "pointer" }}
@@ -309,7 +307,7 @@ function MainApp({ session }) {
               {health.total_queries} queries · {Math.round(health.avg_latency_ms)}ms avg
             </div>
           )}
-          <button 
+          <button
             onClick={() => setShowSettings(true)}
             style={{ padding: "6px 12px", borderRadius: "6px", border: "1px solid var(--border)", background: "var(--bg-card)", color: "var(--text)", fontSize: "12px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px" }}
           >
@@ -340,7 +338,7 @@ function MainApp({ session }) {
 
             <div style={{ marginBottom: "2rem" }}>
               <h3 style={{ fontSize: "1rem", marginBottom: "1rem", borderBottom: "1px solid var(--border)", paddingBottom: "0.5rem" }}>Ingestion Parsing</h3>
-              
+
               <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1rem", marginBottom: "1rem" }}>
                 <div>
                   <label style={{ display: "block", fontSize: "0.85rem", marginBottom: "0.3rem", color: "var(--text-muted)" }}>Image Vision Model</label>
@@ -432,7 +430,7 @@ function MainApp({ session }) {
                 onChange={(e) => handleFileUpload(e.target.files)}
               />
             </div>
-            
+
             <div className="github-upload" style={{ marginTop: "1rem" }}>
               <div className="sidebar-label" style={{ marginBottom: "0.5rem" }}>Ingest GitHub Repo</div>
               <div style={{ display: "flex", gap: "8px" }}>
@@ -491,8 +489,8 @@ function MainApp({ session }) {
                           {file.total_chunks ? ` · ${file.total_chunks} chunks` : ""}
                         </div>
                       </div>
-                      <div 
-                        className="delete-file-btn" 
+                      <div
+                        className="delete-file-btn"
                         onClick={() => handleDeleteFile(file.id)}
                         style={{ cursor: "pointer", opacity: 0.6, fontSize: "14px", padding: "4px" }}
                         title="Remove file from database"
@@ -619,8 +617,8 @@ function MainApp({ session }) {
                         {msg.guard.verified
                           ? "Verified"
                           : msg.guard.score > 0.5
-                          ? "Partially verified"
-                          : "Unverified"}
+                            ? "Partially verified"
+                            : "Unverified"}
                       </span>
                     )}
                     {msg.latency && (
@@ -701,10 +699,5 @@ function SourceCards({ sources }) {
 }
 
 export default function App() {
-  const [session, setSession] = useState(null);
-
-  if (!session) {
-    return <Login setSession={setSession} />;
-  }
-  return <MainApp session={session} />;
+  return <MainApp session={{ user: { id: "local", email: "local@polyrag" } }} />;
 }

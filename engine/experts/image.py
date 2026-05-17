@@ -1,12 +1,12 @@
 import os
+import io
 import base64
 import requests
 import numpy as np
 
 from engine.experts.base import BaseExpert, Chunk
-from engine.config import (
-    EMBEDDING_MODEL, OLLAMA_BASE_URL, OLLAMA_VISION_MODEL
-)
+from engine.config import EMBEDDING_MODEL, OLLAMA_BASE_URL, OLLAMA_VISION_MODEL
+from engine.utils import resolve_model
 
 
 class ImageExpert(BaseExpert):
@@ -57,6 +57,7 @@ class ImageExpert(BaseExpert):
 
         MAX_IMAGES = 30
         MIN_SIZE = 100
+        MAX_DIM = 1024
 
         doc = fitz.open(file_path)
         candidates = []
@@ -84,18 +85,23 @@ class ImageExpert(BaseExpert):
                     if pix.width < MIN_SIZE or pix.height < MIN_SIZE:
                         continue
 
-                    # Resize if too large to prevent Ollama 500 OOM errors
-                    MAX_DIM = 1024
-                    if pix.width > MAX_DIM or pix.height > MAX_DIM:
-                        scale = MAX_DIM / max(pix.width, pix.height)
-                        mat = fitz.Matrix(scale, scale)
-                        pix = fitz.Pixmap(pix, mat)
-
                     img_bytes = pix.tobytes("png")
+
+                    if pix.width > MAX_DIM or pix.height > MAX_DIM:
+                        from PIL import Image
+                        img = Image.open(io.BytesIO(img_bytes))
+                        scale = MAX_DIM / max(img.width, img.height)
+                        new_w = int(img.width * scale)
+                        new_h = int(img.height * scale)
+                        img = img.resize((new_w, new_h), Image.LANCZOS)
+                        buf = io.BytesIO()
+                        img.save(buf, "PNG")
+                        img_bytes = buf.getvalue()
+
                     b64 = base64.b64encode(img_bytes).decode("utf-8")
                     candidates.append((page_num, pix.width, pix.height, b64))
                 except Exception as e:
-                    pass
+                    print(f"[ImageExpert] xref {xref} failed: {e}")
 
             if len(candidates) >= MAX_IMAGES:
                 break
@@ -124,7 +130,6 @@ class ImageExpert(BaseExpert):
             print(f"[ImageExpert] Captioned {idx+1}/{total} (page {page_num+1})")
             return page_num, w, h, cap
 
-        # Use max_workers=1 because local Ollama llava crashes with 500 on concurrent vision inference
         with ThreadPoolExecutor(max_workers=1) as pool:
             futures = {
                 pool.submit(caption_one, i, pn, w, h, b64): i
@@ -166,10 +171,9 @@ class ImageExpert(BaseExpert):
         try:
             config = config or {}
             image_model = config.get("models", {}).get("imageModel")
-            
-            from engine.main import _resolve_model
-            provider, api_name = _resolve_model(image_model)
-            
+
+            provider, api_name = resolve_model(image_model)
+
             if provider == "gemini" and config.get("geminiApiKey"):
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{api_name}:generateContent?key={config.get('geminiApiKey')}"
                 resp = requests.post(
@@ -187,8 +191,7 @@ class ImageExpert(BaseExpert):
                 )
                 if resp.status_code == 200:
                     return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    
-            # Fallback to Ollama
+
             api_name = api_name if provider == "ollama" else OLLAMA_VISION_MODEL
             resp = requests.post(
                 f"{OLLAMA_BASE_URL}/api/generate",
