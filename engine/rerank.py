@@ -1,6 +1,6 @@
 from sentence_transformers import CrossEncoder
 import numpy as np
-from engine.experts.base import Chunk
+from experts.base import Chunk
 
 RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 _reranker = None

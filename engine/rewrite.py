@@ -1,5 +1,5 @@
 import requests
-from engine.config import (
+from config import (
     TESTING, OLLAMA_BASE_URL, OLLAMA_MODEL,
     GROQ_API_KEY, GROQ_MODEL,
     GEMINI_API_KEY, GEMINI_BASE_URL,

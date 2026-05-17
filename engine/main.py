@@ -9,7 +9,7 @@ import uuid as uuid_lib
 from typing import Optional
 from contextlib import asynccontextmanager
 import threading
-from engine.utils import resolve_model
+from utils import resolve_model
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
@@ -19,19 +19,19 @@ from pydantic import BaseModel
 import requests
 import numpy as np
 
-from engine.config import (
+from config import (
     TESTING, OLLAMA_BASE_URL, OLLAMA_MODEL,
     GROQ_API_KEY, GROQ_MODEL,
     GEMINI_API_KEY, GEMINI_BASE_URL,
     DEFAULT_TOP_K, GATE_THRESHOLD,
     UPLOAD_DIR, EXPERT_IDS, EMBEDDING_MODEL
 )
-from engine.experts.base import Chunk
-from engine.fuse import rrf_fuse
-from engine.rerank import rerank
-from engine.rewrite import rewrite_query
-from engine.guard import verify_answer
-from engine.heal import get_pipeline_health, should_retrain_gate
+from experts.base import Chunk
+from fuse import rrf_fuse
+from rerank import rerank
+from rewrite import rewrite_query
+from guard import verify_answer
+from heal import get_pipeline_health, should_retrain_gate
 
 _gate = None
 _experts = {}
@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
 
     try:
-        from engine.db import init_db, ensure_org
+        from db import init_db, ensure_org
         init_db()
         ensure_org("default", "Default Organization")
         print("[Main] [OK] Database initialized")
@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
         print("[Main]   Running without database -- some features will be unavailable")
 
     try:
-        from engine.gate.gate import get_gate
+        from gate.gate import get_gate
         _gate = get_gate()
         print("[Main] [OK] Gate loaded")
     except FileNotFoundError:
@@ -70,10 +70,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Main] [WARN] Gate load failed: {e}")
 
-    from engine.experts.text import TextExpert
-    from engine.experts.table import TableExpert
-    from engine.experts.image import ImageExpert
-    from engine.experts.code import CodeExpert
+    from experts.text import TextExpert
+    from experts.table import TableExpert
+    from experts.image import ImageExpert
+    from experts.code import CodeExpert
     _experts["text"] = TextExpert()
     _experts["table"] = TableExpert()
     _experts["image"] = ImageExpert()
@@ -259,7 +259,7 @@ async def embed_chunks(req: EmbedRequest):
     chunks = expert.embed(chunks)
 
     try:
-        from engine.db import upsert_chunks
+        from db import upsert_chunks
         upsert_chunks(chunks)
     except Exception as e:
         print(f"[Main] [WARN] DB upsert failed: {e}")
@@ -354,7 +354,7 @@ async def ingest_file(
     start = time.time()
 
     try:
-        from engine.db import ensure_org, create_file, update_file_status, upsert_chunks
+        from db import ensure_org, create_file, update_file_status, upsert_chunks
         ensure_org(org_id)
         db_available = True
     except Exception as e:
@@ -470,7 +470,7 @@ async def ingest_github(
     start = time.time()
 
     try:
-        from engine.db import ensure_org, create_file, update_file_status, upsert_chunks
+        from db import ensure_org, create_file, update_file_status, upsert_chunks
         ensure_org(org_id)
         db_available = True
     except Exception as e:
@@ -503,7 +503,7 @@ async def ingest_github(
     all_chunks = []
     experts_used = ["code"]
 
-    from engine.experts.code import CODE_EXTENSIONS
+    from experts.code import CODE_EXTENSIONS
 
     with tempfile.TemporaryDirectory() as tmpdir:
         zip_path = os.path.join(tmpdir, "repo.zip")
@@ -586,7 +586,7 @@ async def ingest_github(
 @app.get("/file/{file_id}")
 async def get_file(file_id: str):
     try:
-        from engine.db import get_file_status
+        from db import get_file_status
         status = get_file_status(file_id)
         if status is None:
             raise HTTPException(status_code=404, detail="File not found")
@@ -646,7 +646,7 @@ async def query_pipeline(req: QueryRequest):
     t_embed = time.time()
     print(f"[Query] Embed: {int((t_embed-t_gate)*1000)}ms")
 
-    from engine.db import search_bm25
+    from db import search_bm25
     retrieve_tasks = []
     retrieve_keys = []
 
@@ -728,7 +728,7 @@ async def query_pipeline(req: QueryRequest):
 
     history_block = ""
     if req.chat_history:
-        from engine.memory import build_memory_context
+        from memory import build_memory_context
         summary, recent = build_memory_context(req.chat_history)
         if summary:
             history_block += f"\n--- Conversation Summary ---\n{summary}\n"
@@ -757,7 +757,7 @@ async def query_pipeline(req: QueryRequest):
 
     query_log_id = None
     try:
-        from engine.db import log_query
+        from db import log_query
         query_log_id = log_query(
             org_id=req.org_id,
             query=req.query,
@@ -945,7 +945,7 @@ async def generate_stream(req: GenerateRequest):
     prompt = req.prompt
 
     if req.chat_history:
-        from engine.memory import build_memory_context
+        from memory import build_memory_context
         summary, recent = build_memory_context(req.chat_history)
         history_block = ""
         if summary:
@@ -1037,7 +1037,7 @@ async def query_stream(req: QueryRequest):
 
     query_vec = await loop.run_in_executor(_io_pool, _cached_embed_query, final_query)
 
-    from engine.db import search_bm25
+    from db import search_bm25
     retrieve_tasks = []
     retrieve_keys = []
 
@@ -1072,7 +1072,7 @@ async def query_stream(req: QueryRequest):
 
     query_log_id = None
     try:
-        from engine.db import log_query
+        from db import log_query
         query_log_id = log_query(
             org_id=req.org_id,
             query=req.query,
@@ -1098,7 +1098,7 @@ async def query_stream(req: QueryRequest):
 
     history_block = ""
     if req.chat_history:
-        from engine.memory import build_memory_context
+        from memory import build_memory_context
         summary, recent = build_memory_context(req.chat_history)
         if summary:
             history_block += f"\n--- Conversation Summary ---\n{summary}\n"
@@ -1174,7 +1174,7 @@ class OrgConfigUpdate(BaseModel):
 @app.get("/config/{org_id}")
 async def get_org_config(org_id: str):
     try:
-        from engine.db import get_org_config
+        from db import get_org_config
         config = get_org_config(org_id)
         if config is None:
             raise HTTPException(status_code=404, detail="Org not found")
@@ -1187,7 +1187,7 @@ async def get_org_config(org_id: str):
 @app.put("/config/{org_id}")
 async def update_org_config(org_id: str, req: OrgConfigUpdate):
     try:
-        from engine.db import update_org_config
+        from db import update_org_config
         update_org_config(org_id, req.name, req.config)
         return {"status": "ok", "org_id": org_id}
     except Exception as e:
@@ -1210,7 +1210,7 @@ def _ingest_background(file_path: str, file_id: str, org_id: str, ext: str):
     _update("parsing", 0)
 
     try:
-        from engine.db import update_file_status, upsert_chunks
+        from db import update_file_status, upsert_chunks
 
         parse_tasks = {}
         with ThreadPoolExecutor(max_workers=3) as pool:
@@ -1316,7 +1316,7 @@ async def ingest_file_async(
     org_id: str = Form("default"),
 ):
     try:
-        from engine.db import ensure_org, create_file
+        from db import ensure_org, create_file
         ensure_org(org_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB error: {e}")
@@ -1360,7 +1360,7 @@ async def submit_feedback(req: FeedbackRequest):
     if not req.query_log_id:
         return {"status": "ok", "feedback_id": None, "note": "no query_log_id provided"}
     try:
-        from engine.db import save_feedback
+        from db import save_feedback
         fb_id = save_feedback(req.query_log_id, req.rating, req.correct_expert)
         return {"status": "ok", "feedback_id": fb_id}
     except Exception as e:
@@ -1403,7 +1403,7 @@ class BM25Request(BaseModel):
 @app.post("/retrieve/bm25")
 async def retrieve_bm25(req: BM25Request):
     try:
-        from engine.db import search_bm25
+        from db import search_bm25
         chunks = search_bm25(req.query, req.org_id, req.expert_id, req.top_k)
         return {
             "chunks": [
@@ -1424,6 +1424,6 @@ async def retrieve_bm25(req: BM25Request):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "engine.main:app", host="0.0.0.0", port=8000, reload=True,
+        "main:app", host="0.0.0.0", port=8000, reload=True,
         reload_excludes=["scripts/*", "tests/*", "client/*", "server/*", "data/*", "uploads/*"]
     )
