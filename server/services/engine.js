@@ -24,11 +24,6 @@ async function gate(query) {
   return data;
 }
 
-async function rewrite(query, chatHistory = [], model = null) {
-  const { data } = await client.post("/rewrite", { query, chat_history: chatHistory, model });
-  return data;
-}
-
 async function retrieve(query, expertId, orgId, topK = 10) {
   const { data } = await client.post("/retrieve", {
     query,
@@ -151,7 +146,6 @@ async function deleteOrgFile(orgId, fileId) {
 
 module.exports = {
   gate,
-  rewrite,
   retrieve,
   retrieveBM25,
   rerankChunks,

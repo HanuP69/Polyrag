@@ -5,7 +5,6 @@ const cache = require("../services/cache");
 const { rrfFuse } = require("../services/fuse");
 
 const GATE_THRESHOLD = 0.4;
-const REWRITE_THRESHOLD = 0.5;
 
 router.post("/api/query", async (req, res) => {
   const start = Date.now();
@@ -26,17 +25,6 @@ router.post("/api/query", async (req, res) => {
     let gateWeights = gateResult.raw || gateResult;
 
     let finalQuery = query;
-    let rewrittenQuery = null;
-    const maxConf = Math.max(...Object.values(gateWeights));
-    if (maxConf < REWRITE_THRESHOLD || query.split(" ").length < 4 || chat_history.length > 0) {
-      const rewriteResult = await engine.rewrite(query, chat_history, model);
-      if (rewriteResult.rewritten !== query) {
-        finalQuery = rewriteResult.rewritten;
-        rewrittenQuery = finalQuery;
-        gateResult = await engine.gate(finalQuery);
-        gateWeights = gateResult.raw || gateResult;
-      }
-    }
 
     const activeExperts = Object.entries(gateWeights).filter(
       ([, w]) => w > GATE_THRESHOLD
@@ -137,7 +125,7 @@ router.post("/api/query", async (req, res) => {
         type: "meta",
         gate: gateWeights,
         sources,
-        rewritten_query: rewrittenQuery,
+
         active_experts: activeExperts.map(([id]) => id),
       })}\n\n`
     );
@@ -271,7 +259,7 @@ router.post("/api/query/sync", async (req, res) => {
 function buildPrompt(query, chunks, systemPrompt) {
   const sys =
     systemPrompt ||
-    "You are a document Q&A assistant. You MUST answer ONLY using the provided sources below. " +
+    "You are a document (or codebase given the content) Q&A assistant. You MUST answer ONLY using the provided sources below. " +
     "Do NOT use your own knowledge. Every claim you make must come from the sources. " +
     "Cite sources using [Source N] notation. If the sources don't answer the question, say: " +
     "'The uploaded documents do not contain information about this topic.'";
