@@ -26,6 +26,13 @@ GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 # ──────────────────────────── Model Registry ─────────────────────────
 MODEL_REGISTRY = {
     # ── Local (Ollama) ──
+    "qwen2.5:7b-instruct-q4_K_M": {
+        "provider": "ollama",
+        "api_name": "qwen2.5:7b-instruct-q4_K_M",
+        "display": "Qwen 2.5 7B Instruct (Local) 🧠",
+        "group": "Local (Ollama)",
+        "caps": ["text"],
+    },
     "llama3.2:3b": {
         "provider": "ollama",
         "api_name": "llama3.2:3b",
@@ -55,6 +62,20 @@ MODEL_REGISTRY = {
         "caps": ["vision"],
     },
     # ── Cloud (Groq) ──
+    "deepseek-r1-distill-llama-70b": {
+        "provider": "groq",
+        "api_name": "deepseek-r1-distill-llama-70b",
+        "display": "DeepSeek R1 70B (Groq) 💭",
+        "group": "Cloud (Groq)",
+        "caps": ["text"],
+    },
+    "llama-3.3-70b-specdec": {
+        "provider": "groq",
+        "api_name": "llama-3.3-70b-specdec",
+        "display": "Llama 3.3 70B SpecDec ⚡",
+        "group": "Cloud (Groq)",
+        "caps": ["text"],
+    },
     "llama-3.1-70b-versatile": {
         "provider": "groq",
         "api_name": "llama-3.1-70b-versatile",
@@ -76,7 +97,21 @@ MODEL_REGISTRY = {
         "group": "Cloud (Groq)",
         "caps": ["text"],
     },
-    # ── Cloud (Gemini) ── fastest first
+    # ── Cloud (Gemini) ──
+    "gemini-2.0-pro-exp": {
+        "provider": "gemini",
+        "api_name": "gemini-2.0-pro-exp-02-05",
+        "display": "Gemini 2.0 Pro Exp 🚀",
+        "group": "Cloud (Gemini)",
+        "caps": ["text", "vision"],
+    },
+    "gemini-2.0-flash-thinking": {
+        "provider": "gemini",
+        "api_name": "gemini-2.0-flash-thinking-exp-01-21",
+        "display": "Gemini 2.0 Flash Thinking 🧠",
+        "group": "Cloud (Gemini)",
+        "caps": ["text", "vision"],
+    },
     "gemini-2.5-flash": {
         "provider": "gemini",
         "api_name": "gemini-2.5-flash",
@@ -95,6 +130,20 @@ MODEL_REGISTRY = {
         "provider": "gemini",
         "api_name": "gemini-2.0-flash",
         "display": "Gemini 2.0 Flash",
+        "group": "Cloud (Gemini)",
+        "caps": ["text", "vision"],
+    },
+    "gemini-1.5-pro": {
+        "provider": "gemini",
+        "api_name": "gemini-1.5-pro",
+        "display": "Gemini 1.5 Pro (2M Context)",
+        "group": "Cloud (Gemini)",
+        "caps": ["text", "vision"],
+    },
+    "gemini-1.5-flash": {
+        "provider": "gemini",
+        "api_name": "gemini-1.5-flash",
+        "display": "Gemini 1.5 Flash",
         "group": "Cloud (Gemini)",
         "caps": ["text", "vision"],
     },

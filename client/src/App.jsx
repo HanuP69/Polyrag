@@ -226,6 +226,27 @@ const MarkdownRenderer = ({ content }) => {
   );
 };
 
+const getArcPath = (cx, cy, r_in, r_out, start_angle, end_angle) => {
+  const rad = Math.PI / 180;
+  const x1_in = cx + r_in * Math.cos(start_angle * rad);
+  const y1_in = cy + r_in * Math.sin(start_angle * rad);
+  const x2_in = cx + r_in * Math.cos(end_angle * rad);
+  const y2_in = cy + r_in * Math.sin(end_angle * rad);
+  const x1_out = cx + r_out * Math.cos(start_angle * rad);
+  const y1_out = cy + r_out * Math.sin(start_angle * rad);
+  const x2_out = cx + r_out * Math.cos(end_angle * rad);
+  const y2_out = cy + r_out * Math.sin(end_angle * rad);
+  return `M ${x1_in} ${y1_in} L ${x1_out} ${y1_out} A ${r_out} ${r_out} 0 0 1 ${x2_out} ${y2_out} L ${x2_in} ${y2_in} A ${r_in} ${r_in} 0 0 0 ${x1_in} ${y1_in} Z`;
+};
+
+const getMidpointCoords = (cx, cy, r, angle) => {
+  const rad = Math.PI / 180;
+  return {
+    x: cx + r * Math.cos(angle * rad),
+    y: cy + r * Math.sin(angle * rad)
+  };
+};
+
 function MainApp({ session }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -233,37 +254,10 @@ function MainApp({ session }) {
   const [files, setFiles] = useState([]);
 
   const [wheelOpen, setWheelOpen] = useState(false);
-  const [hoveredSlice, setHoveredSlice] = useState(null);
-  const [activeModal, setActiveModal] = useState(null); // null, 'files', 'health', 'settings'
+  const [activeWheelIndex, setActiveWheelIndex] = useState(0);
+  const [showHints, setShowHints] = useState(false);
+  const [activeModal, setActiveModal] = useState(null);
 
-  const getArcPath = (cx, cy, r_in, r_out, start_angle, end_angle) => {
-    const rad = Math.PI / 180;
-    const x1_in = cx + r_in * Math.cos(start_angle * rad);
-    const y1_in = cy + r_in * Math.sin(start_angle * rad);
-    const x2_in = cx + r_in * Math.cos(end_angle * rad);
-    const y2_in = cy + r_in * Math.sin(end_angle * rad);
-
-    const x1_out = cx + r_out * Math.cos(start_angle * rad);
-    const y1_out = cy + r_out * Math.sin(start_angle * rad);
-    const x2_out = cx + r_out * Math.cos(end_angle * rad);
-    const y2_out = cy + r_out * Math.sin(end_angle * rad);
-
-    return `
-      M ${x1_in} ${y1_in}
-      L ${x1_out} ${y1_out}
-      A ${r_out} ${r_out} 0 0 1 ${x2_out} ${y2_out}
-      L ${x2_in} ${y2_in}
-      A ${r_in} ${r_in} 0 0 0 ${x1_in} ${y1_in}
-      Z
-    `;
-  };
-
-  const getMidpointCoords = (cx, cy, r, angle) => {
-    const rad = Math.PI / 180;
-    const x = cx + r * Math.cos(angle * rad);
-    const y = cy + r * Math.sin(angle * rad);
-    return { x, y };
-  };
   const [selectedFileIds, setSelectedFileIds] = useState(new Set());
   const [health, setHealth] = useState(null);
   const [dbHealth, setDbHealth] = useState(null);
@@ -281,6 +275,42 @@ function MainApp({ session }) {
     groqApiKey: "",
     geminiApiKey: "",
   });
+
+  const [p1State, setP1State] = useState("idle");
+  const [p2State, setP2State] = useState("idle");
+  const [p3State, setP3State] = useState("idle");
+
+  const handlePandaClick = useCallback((id) => {
+    if (id === 1) {
+      if (p1State !== "idle") return;
+      setP1State("falling");
+      setTimeout(() => {
+        setP1State("climbing");
+        setTimeout(() => {
+          setP1State("idle");
+        }, 2500);
+      }, 700);
+    } else if (id === 2) {
+      if (p2State !== "idle") return;
+      setP2State("falling");
+      setTimeout(() => {
+        setP2State("climbing");
+        setTimeout(() => {
+          setP2State("idle");
+        }, 2500);
+      }, 700);
+    } else if (id === 3) {
+      if (p3State !== "idle") return;
+      setP3State("falling");
+      setTimeout(() => {
+        setP3State("climbing");
+        setTimeout(() => {
+          setP3State("idle");
+        }, 2500);
+      }, 700);
+    }
+  }, [p1State, p2State, p3State]);
+
   const messagesEndRef = useRef(null);
   const fileInputRef = useRef(null);
   const prevFilesRef = useRef([]);
@@ -310,6 +340,39 @@ function MainApp({ session }) {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // High performance tracking effect for interactive Panda head Z-axis neck rotation
+  useEffect(() => {
+    const handleMouseMove = (e) => {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+
+      // Panda 1: Left bamboo (approx neck at 12% width, 65% height)
+      const p1x = 0.12 * w;
+      const p1y = 0.65 * h;
+      const angle1 = Math.atan2(e.clientY - p1y, e.clientX - p1x) * (180 / Math.PI) - 90; 
+      const clamp1 = Math.max(-55, Math.min(55, angle1));
+
+      // Panda 2: Right bamboo (approx neck at 92% width, 45% height)
+      const p2x = 0.92 * w;
+      const p2y = 0.45 * h;
+      const angle2 = Math.atan2(e.clientY - p2y, e.clientX - p2x) * (180 / Math.PI) - 90;
+      const clamp2 = Math.max(-55, Math.min(55, angle2));
+
+      // Panda 3: Bottom right bamboo (approx neck at 97% width, 78% height)
+      const p3x = 0.97 * w;
+      const p3y = 0.78 * h;
+      const angle3 = Math.atan2(e.clientY - p3y, e.clientX - p3x) * (180 / Math.PI) - 90;
+      const clamp3 = Math.max(-55, Math.min(55, angle3));
+
+      document.documentElement.style.setProperty('--panda-rot-1', `rotate(${clamp1}deg)`);
+      document.documentElement.style.setProperty('--panda-rot-2', `rotate(${clamp2}deg)`);
+      document.documentElement.style.setProperty('--panda-rot-3', `rotate(${clamp3}deg)`);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
 
   // Auto-select files when they finish indexing
   useEffect(() => {
@@ -489,17 +552,280 @@ function MainApp({ session }) {
 
   return (
     <div className="app">
-      {/* Rich Japanese Bamboo Forest & Misty Dawn background */}
       <div className="bamboo-forest-environment">
-        {/* Tall segmented bamboo trunks */}
-        <div className="bamboo-trunk trunk-left-1"></div>
-        <div className="bamboo-trunk trunk-left-2"></div>
-        <div className="bamboo-trunk trunk-mid-left"></div>
-        <div className="bamboo-trunk trunk-mid-right"></div>
-        <div className="bamboo-trunk trunk-right-1"></div>
-        <div className="bamboo-trunk trunk-right-2"></div>
-        
-        {/* Falling animated Sakura Cherry Blossom Petals */}
+        <svg style={{ position: "absolute", width: 0, height: 0 }}>
+          <defs>
+            <linearGradient id="bamboo-grad-dark" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#222e1d" />
+              <stop offset="40%" stopColor="#3d4f32" />
+              <stop offset="80%" stopColor="#4b613e" />
+              <stop offset="100%" stopColor="#1b2518" />
+            </linearGradient>
+            <linearGradient id="bamboo-grad-mid" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#37482f" />
+              <stop offset="35%" stopColor="#556c47" />
+              <stop offset="70%" stopColor="#698559" />
+              <stop offset="100%" stopColor="#293723" />
+            </linearGradient>
+            <linearGradient id="bamboo-grad-light" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stopColor="#4e6541" />
+              <stop offset="35%" stopColor="#729260" />
+              <stop offset="70%" stopColor="#87aa73" />
+              <stop offset="100%" stopColor="#3d5133" />
+            </linearGradient>
+          </defs>
+        </svg>
+
+        {/* Left Bamboo Cluster (Thicker, Denser, 12 layered trunks) */}
+        {/* Far Background Trunk 3 */}
+        <div className="bamboo-detailed trunk-left-3" style={{ position: "absolute", left: "17%", bottom: "-10px", width: "70px", height: "105%", opacity: 0.1, filter: "blur(3px)" }}>
+          <svg viewBox="0 0 100 800" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <path d="M 45 0 L 55 0 L 55 800 L 45 800 Z" fill="url(#bamboo-grad-dark)" />
+            <path d="M 38 150 L 62 150 M 38 300 L 62 300 M 38 450 L 62 450 M 38 600 L 62 600" stroke="#1b2518" strokeWidth="3" />
+          </svg>
+        </div>
+        {/* Far Background Trunk 4 */}
+        <div className="bamboo-detailed trunk-left-4" style={{ position: "absolute", left: "28%", bottom: "-10px", width: "80px", height: "105%", opacity: 0.12, filter: "blur(2.5px)" }}>
+          <svg viewBox="0 0 100 800" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <path d="M 45 0 L 55 0 L 55 800 L 45 800 Z" fill="url(#bamboo-grad-dark)" />
+            <path d="M 38 140 L 62 140 M 38 280 L 62 280 M 38 420 L 62 420 M 38 560 L 62 560 M 38 700 L 62 700" stroke="#1b2518" strokeWidth="3.5" />
+          </svg>
+        </div>
+        {/* Far Background Trunk 5 */}
+        <div className="bamboo-detailed trunk-left-5" style={{ position: "absolute", left: "36%", bottom: "-10px", width: "60px", height: "105%", opacity: 0.07, filter: "blur(3.5px)" }}>
+          <svg viewBox="0 0 100 800" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <path d="M 45 0 L 55 0 L 55 800 L 45 800 Z" fill="url(#bamboo-grad-dark)" />
+            <path d="M 38 160 L 62 160 M 38 320 L 62 320 M 38 480 L 62 480 M 38 640 L 62 640" stroke="#1b2518" strokeWidth="3" />
+          </svg>
+        </div>
+        {/* Mid Background Trunk 6 */}
+        <div className="bamboo-detailed trunk-left-6" style={{ position: "absolute", left: "22%", bottom: "-10px", width: "70px", height: "105%", opacity: 0.15, filter: "blur(2px)" }}>
+          <svg viewBox="0 0 100 800" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <path d="M 45 0 L 55 0 L 55 800 L 45 800 Z" fill="url(#bamboo-grad-mid)" />
+            <path d="M 38 150 L 62 150 M 38 300 L 62 300 M 38 450 L 62 450 M 38 600 L 62 600" stroke="#23301e" strokeWidth="3" />
+          </svg>
+        </div>
+        {/* Background Trunk 1 */}
+        <div className="bamboo-detailed trunk-left-1" style={{ position: "absolute", left: "1%", bottom: "-10px", width: "100px", height: "105%", opacity: 0.2, filter: "blur(1.5px)" }}>
+          <svg viewBox="0 0 100 800" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <path d="M 45 0 L 55 0 L 55 800 L 45 800 Z" fill="url(#bamboo-grad-mid)" />
+            <path d="M 38 150 L 62 150 M 38 300 L 62 300 M 38 450 L 62 450 M 38 600 L 62 600" stroke="#23301e" strokeWidth="4" />
+          </svg>
+        </div>
+        {/* Thick Front Trunk 2 */}
+        <div className="bamboo-detailed trunk-left-2" style={{ position: "absolute", left: "8%", bottom: "-10px", width: "155px", height: "105%", opacity: 0.85 }}>
+          <svg viewBox="0 0 100 800" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <path d="M 45 0 L 55 0 L 55 800 L 45 800 Z" fill="url(#bamboo-grad-light)" />
+            <path d="M 35 120 L 65 120 M 35 240 L 65 240 M 35 360 L 65 360 M 35 480 L 65 480 M 35 600 L 65 600 M 35 720 L 65 720" stroke="#37482f" strokeWidth="5.5" />
+            <path d="M 55 240 Q 85 210 95 180" fill="none" stroke="#37482f" strokeWidth="4" />
+            <path d="M 95 180 Q 110 185 95 195 Q 85 190 95 180" fill="#37482f" />
+            <path d="M 45 480 Q 15 450 5 420" fill="none" stroke="#37482f" strokeWidth="4" />
+            <path d="M 5 420 Q -10 425 5 435 Q 15 430 5 420" fill="#37482f" />
+          </svg>
+        </div>
+
+        {/* Right Bamboo Cluster (Thicker, Denser, 12 layered trunks) */}
+        {/* Far Background Trunk 3 */}
+        <div className="bamboo-detailed trunk-right-3" style={{ position: "absolute", right: "17%", bottom: "-10px", width: "70px", height: "105%", opacity: 0.1, filter: "blur(3px)" }}>
+          <svg viewBox="0 0 100 800" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <path d="M 45 0 L 55 0 L 55 800 L 45 800 Z" fill="url(#bamboo-grad-dark)" />
+            <path d="M 38 150 L 62 150 M 38 300 L 62 300 M 38 450 L 62 450 M 38 600 L 62 600" stroke="#1b2518" strokeWidth="3" />
+          </svg>
+        </div>
+        {/* Far Background Trunk 4 */}
+        <div className="bamboo-detailed trunk-right-4" style={{ position: "absolute", right: "27%", bottom: "-10px", width: "80px", height: "105%", opacity: 0.12, filter: "blur(2.5px)" }}>
+          <svg viewBox="0 0 100 800" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <path d="M 45 0 L 55 0 L 55 800 L 45 800 Z" fill="url(#bamboo-grad-dark)" />
+            <path d="M 38 140 L 62 140 M 38 280 L 62 280 M 38 420 L 62 420 M 38 560 L 62 560 M 38 700 L 62 700" stroke="#1b2518" strokeWidth="3.5" />
+          </svg>
+        </div>
+        {/* Far Background Trunk 5 */}
+        <div className="bamboo-detailed trunk-right-5" style={{ position: "absolute", right: "35%", bottom: "-10px", width: "60px", height: "105%", opacity: 0.07, filter: "blur(3.5px)" }}>
+          <svg viewBox="0 0 100 800" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <path d="M 45 0 L 55 0 L 55 800 L 45 800 Z" fill="url(#bamboo-grad-dark)" />
+            <path d="M 38 160 L 62 160 M 38 320 L 62 320 M 38 480 L 62 480 M 38 640 L 62 640" stroke="#1b2518" strokeWidth="3" />
+          </svg>
+        </div>
+        {/* Mid Background Trunk 6 */}
+        <div className="bamboo-detailed trunk-right-6" style={{ position: "absolute", right: "22%", bottom: "-10px", width: "75px", height: "105%", opacity: 0.15, filter: "blur(2px)" }}>
+          <svg viewBox="0 0 100 800" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <path d="M 45 0 L 55 0 L 55 800 L 45 800 Z" fill="url(#bamboo-grad-mid)" />
+            <path d="M 38 150 L 62 150 M 38 300 L 62 300 M 38 450 L 62 450 M 38 600 L 62 600" stroke="#23301e" strokeWidth="3" />
+          </svg>
+        </div>
+        {/* Thick Front Trunk 1 */}
+        <div className="bamboo-detailed trunk-right-1" style={{ position: "absolute", right: "4%", bottom: "-10px", width: "165px", height: "105%", opacity: 0.85 }}>
+          <svg viewBox="0 0 100 800" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <path d="M 45 0 L 55 0 L 55 800 L 45 800 Z" fill="url(#bamboo-grad-light)" />
+            <path d="M 33 140 L 67 140 M 33 280 L 67 280 M 33 420 L 67 420 M 33 560 L 67 560 M 33 700 L 67 700" stroke="#293723" strokeWidth="5.5" />
+            <path d="M 45 280 Q 15 250 5 220" fill="none" stroke="#293723" strokeWidth="4" />
+            <path d="M 5 220 Q -10 225 5 235 Q 15 230 5 220" fill="#293723" />
+            <path d="M 55 560 Q 85 530 95 500" fill="none" stroke="#293723" strokeWidth="4" />
+            <path d="M 95 500 Q 110 505 95 515 Q 85 510 95 500" fill="#293723" />
+          </svg>
+        </div>
+        {/* Background Trunk 2 */}
+        <div className="bamboo-detailed trunk-right-2" style={{ position: "absolute", right: "0.5%", bottom: "-10px", width: "100px", height: "105%", opacity: 0.18, filter: "blur(1.5px)" }}>
+          <svg viewBox="0 0 100 800" preserveAspectRatio="none" style={{ width: "100%", height: "100%" }}>
+            <path d="M 45 0 L 55 0 L 55 800 L 45 800 Z" fill="url(#bamboo-grad-mid)" />
+            <path d="M 36 130 L 64 130 M 36 260 L 64 260 M 36 390 L 64 390 M 36 520 L 64 520 M 36 650 L 64 650" stroke="#23301e" strokeWidth="4" />
+          </svg>
+        </div>
+
+        {/* Climbed Panda 1 (Left Front Trunk, side-profile clinging facing left) */}
+        <div 
+          onClick={() => handlePandaClick(1)}
+          style={{ 
+            position: "absolute", 
+            left: "9.2%", 
+            bottom: "28%", 
+            width: "130px", 
+            height: "130px", 
+            cursor: "pointer",
+            pointerEvents: "auto", 
+            zIndex: 5, 
+            filter: "drop-shadow(2px 5px 6px rgba(0,0,0,0.3))",
+            transform: p1State === "falling" ? "translateY(350px) rotate(15deg) scale(0.95)" : p1State === "climbing" ? "translateY(0)" : "none",
+            transition: p1State === "falling" ? "transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)" : p1State === "climbing" ? "transform 2.5s cubic-bezier(0.455, 0.03, 0.515, 0.955)" : "transform 0.4s ease"
+          }}
+          title="Click to see me slide down and climb back up!"
+        >
+          <svg viewBox="0 0 80 80" style={{ width: "100%", height: "100%" }}>
+            {/* Stubby front arms clutched tightly to Leftward trunk (x=24) */}
+            <rect className={`panda-limb-left ${p1State === "climbing" ? "wiggling" : ""}`} x="16" y="38" width="22" height="13" rx="6.5" fill="#222222" style={{ transformOrigin: "27px 44px" }} />
+            {/* Stubby hind legs clutched tightly */}
+            <rect className={`panda-limb-right ${p1State === "climbing" ? "wiggling" : ""}`} x="14" y="53" width="24" height="14" rx="7" fill="#222222" style={{ transformOrigin: "26px 60px" }} />
+            {/* Chubby tail */}
+            <circle cx="50" cy="58" r="4.5" fill="#222222" />
+            {/* Shoulder saddle */}
+            <path d="M 28 38 C 30 32, 46 32, 44 42 C 44 48, 28 46, 28 38 Z" fill="#222222" />
+            {/* Chubby white body snug against stalk */}
+            <ellipse cx="36" cy="51" rx="13" ry="15" fill="#ffffff" stroke="#1b2518" strokeWidth="1" />
+            {/* Interactive Head rotating looking at user cursor */}
+            <g style={{ transform: "var(--panda-rot-1)", transformOrigin: "34px 26px", transition: "transform 0.1s ease-out" }}>
+              <circle cx="24" cy="16" r="5.5" fill="#222222" />
+              <circle cx="42" cy="17" r="5" fill="#222222" />
+              <circle cx="34" cy="26" r="13.5" fill="#ffffff" stroke="#1b2518" strokeWidth="1.2" />
+              
+              {/* Adorable Innocent Sparkly Eyes (Two white glints inside black) */}
+              <ellipse cx="29" cy="25" rx="3.5" ry="4.8" fill="#222222" transform="rotate(-10, 29, 25)" />
+              <circle cx="28.2" cy="23.8" r="1.1" fill="#ffffff" />
+              <circle cx="29.8" cy="26.2" r="0.65" fill="#ffffff" />
+              
+              <ellipse cx="39" cy="25" rx="3" ry="4" fill="#222222" transform="rotate(10, 39, 25)" />
+              <circle cx="38.2" cy="23.8" r="1.1" fill="#ffffff" />
+              <circle cx="39.8" cy="26.2" r="0.65" fill="#ffffff" />
+              
+              <polygon points="32,29 36,29 34,31" fill="#222222" />
+              <circle cx="26" cy="29" r="1.5" fill="#ffa8b6" opacity="0.6" />
+              <circle cx="41" cy="30" r="1.5" fill="#ffa8b6" opacity="0.6" />
+            </g>
+          </svg>
+        </div>
+
+        {/* Climbed Panda 2 (Right Front Trunk, side-profile clinging facing right) */}
+        <div 
+          onClick={() => handlePandaClick(2)}
+          style={{ 
+            position: "absolute", 
+            right: "5.2%", 
+            bottom: "48%", 
+            width: "130px", 
+            height: "130px", 
+            cursor: "pointer",
+            pointerEvents: "auto", 
+            zIndex: 5, 
+            filter: "drop-shadow(-2px 5px 6px rgba(0,0,0,0.3))",
+            transform: p2State === "falling" ? "translateY(450px) rotate(-15deg) scale(0.95)" : p2State === "climbing" ? "translateY(0)" : "none",
+            transition: p2State === "falling" ? "transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)" : p2State === "climbing" ? "transform 2.5s cubic-bezier(0.455, 0.03, 0.515, 0.955)" : "transform 0.4s ease"
+          }}
+          title="Click to see me slide down and climb back up!"
+        >
+          <svg viewBox="0 0 80 80" style={{ width: "100%", height: "100%" }}>
+            {/* Stubby front arms clutched tightly to Rightward trunk (x=56) */}
+            <rect className={`panda-limb-left ${p2State === "climbing" ? "wiggling" : ""}`} x="42" y="38" width="22" height="13" rx="6.5" fill="#222222" style={{ transformOrigin: "53px 44px" }} />
+            {/* Stubby hind legs clutched tightly */}
+            <rect className={`panda-limb-right ${p2State === "climbing" ? "wiggling" : ""}`} x="42" y="53" width="24" height="14" rx="7" fill="#222222" style={{ transformOrigin: "54px 60px" }} />
+            {/* Chubby tail */}
+            <circle cx="30" cy="58" r="4.5" fill="#222222" />
+            {/* Shoulder saddle */}
+            <path d="M 52 38 C 50 32, 34 32, 36 42 C 36 48, 52 46, 52 38 Z" fill="#222222" />
+            {/* Chubby white body snug against stalk */}
+            <ellipse cx="44" cy="51" rx="13" ry="15" fill="#ffffff" stroke="#1b2518" strokeWidth="1" />
+            {/* Interactive Head rotating looking at user cursor */}
+            <g style={{ transform: "var(--panda-rot-2)", transformOrigin: "46px 26px", transition: "transform 0.1s ease-out" }}>
+              <circle cx="56" cy="16" r="5.5" fill="#222222" />
+              <circle cx="38" cy="17" r="5" fill="#222222" />
+              <circle cx="46" cy="26" r="13.5" fill="#ffffff" stroke="#1b2518" strokeWidth="1.2" />
+              
+              {/* Adorable Innocent Sparkly Eyes (Two white glints inside black) */}
+              <ellipse cx="41" cy="25" rx="3" ry="4" fill="#222222" transform="rotate(-10, 41, 25)" />
+              <circle cx="40.2" cy="23.8" r="1.1" fill="#ffffff" />
+              <circle cx="41.8" cy="26.2" r="0.65" fill="#ffffff" />
+              
+              <ellipse cx="51" cy="25" rx="3.5" ry="4.8" fill="#222222" transform="rotate(10, 51, 25)" />
+              <circle cx="50.2" cy="23.8" r="1.1" fill="#ffffff" />
+              <circle cx="51.8" cy="26.2" r="0.65" fill="#ffffff" />
+              
+              <polygon points="44,29 48,29 46,31" fill="#222222" />
+              <circle cx="54" cy="29" r="1.5" fill="#ffa8b6" opacity="0.6" />
+              <circle cx="39" cy="30" r="1.5" fill="#ffa8b6" opacity="0.6" />
+            </g>
+          </svg>
+        </div>
+
+        {/* Climbed Panda 3 (Far Right Background Trunk, mirrored facing left) */}
+        <div 
+          onClick={() => handlePandaClick(3)}
+          style={{ 
+            position: "absolute", 
+            right: "0%", 
+            bottom: "16%", 
+            width: "105px", 
+            height: "105px", 
+            cursor: "pointer",
+            pointerEvents: "auto", 
+            zIndex: 4, 
+            opacity: 0.8, 
+            filter: "drop-shadow(-1px 3px 4px rgba(0,0,0,0.25))",
+            transform: p3State === "falling" ? "translateY(180px) rotate(-15deg) scale(0.95) scaleX(-1)" : p3State === "climbing" ? "translateY(0) scaleX(-1)" : "scaleX(-1)",
+            transition: p3State === "falling" ? "transform 0.6s cubic-bezier(0.25, 0.46, 0.45, 0.94)" : p3State === "climbing" ? "transform 2.5s cubic-bezier(0.455, 0.03, 0.515, 0.955)" : "transform 0.4s ease"
+          }}
+          title="Click to see me slide down and climb back up!"
+        >
+          <svg viewBox="0 0 80 80" style={{ width: "100%", height: "100%" }}>
+            {/* Stubby front arms clutched tightly */}
+            <rect className={`panda-limb-left ${p3State === "climbing" ? "wiggling" : ""}`} x="42" y="38" width="22" height="13" rx="6.5" fill="#222222" style={{ transformOrigin: "53px 44px" }} />
+            {/* Stubby hind legs clutched tightly */}
+            <rect className={`panda-limb-right ${p3State === "climbing" ? "wiggling" : ""}`} x="42" y="53" width="24" height="14" rx="7" fill="#222222" style={{ transformOrigin: "54px 60px" }} />
+            {/* Chubby tail */}
+            <circle cx="30" cy="58" r="4.5" fill="#222222" />
+            {/* Shoulder saddle */}
+            <path d="M 52 38 C 50 32, 34 32, 36 42 C 36 48, 52 46, 52 38 Z" fill="#222222" />
+            {/* Chubby white body snug against stalk */}
+            <ellipse cx="44" cy="51" rx="13" ry="15" fill="#ffffff" stroke="#1b2518" strokeWidth="1" />
+            {/* Interactive Head rotating looking at user cursor */}
+            <g style={{ transform: "var(--panda-rot-3)", transformOrigin: "46px 26px", transition: "transform 0.1s ease-out" }}>
+              <circle cx="56" cy="16" r="5.5" fill="#222222" />
+              <circle cx="38" cy="17" r="5" fill="#222222" />
+              <circle cx="46" cy="26" r="13.5" fill="#ffffff" stroke="#1b2518" strokeWidth="1.2" />
+              
+              {/* Adorable Innocent Sparkly Eyes (Two white glints inside black) */}
+              <ellipse cx="41" cy="25" rx="3" ry="4" fill="#222222" transform="rotate(-10, 41, 25)" />
+              <circle cx="40.2" cy="23.8" r="1.1" fill="#ffffff" />
+              <circle cx="41.8" cy="26.2" r="0.65" fill="#ffffff" />
+              
+              <ellipse cx="51" cy="25" rx="3.5" ry="4.8" fill="#222222" transform="rotate(10, 51, 25)" />
+              <circle cx="50.2" cy="23.8" r="1.1" fill="#ffffff" />
+              <circle cx="51.8" cy="26.2" r="0.65" fill="#ffffff" />
+              
+              <polygon points="44,29 48,29 46,31" fill="#222222" />
+              <circle cx="54" cy="29" r="1.5" fill="#ffa8b6" opacity="0.6" />
+              <circle cx="39" cy="30" r="1.5" fill="#ffa8b6" opacity="0.6" />
+            </g>
+          </svg>
+        </div>
+
         <div className="sakura-petal petal-1"></div>
         <div className="sakura-petal petal-2"></div>
         <div className="sakura-petal petal-3"></div>
@@ -508,29 +834,308 @@ function MainApp({ session }) {
         <div className="sakura-petal petal-6"></div>
       </div>
 
-      {/* Serene Japanese Waterfall Spout & Water stream */}
-      <div className="japanese-water-spout">
-        <div className="bamboo-spout-element"></div>
-        <div className="waterfall-cascade">
-          <div className="water-drop-1"></div>
-          <div className="water-drop-2"></div>
-          <div className="water-drop-3"></div>
+      <div className="leaf-vignette-container">
+        <div className="leaf-vignette leaf-vignette-tl">
+          <svg viewBox="0 0 120 120" width="100%" height="100%" fill="rgba(74, 93, 62, 0.08)">
+            <path d="M10 0 C30 20, 50 10, 80 40 C60 50, 30 30, 10 0 Z" />
+            <path d="M30 0 C50 30, 80 20, 100 60 C80 70, 50 40, 30 0 Z" />
+            <path d="M0 20 C20 50, 40 40, 60 85 C45 90, 20 65, 0 20 Z" />
+          </svg>
+        </div>
+        <div className="leaf-vignette leaf-vignette-tr">
+          <svg viewBox="0 0 120 120" width="100%" height="100%" fill="rgba(74, 93, 62, 0.08)">
+            <path d="M110 0 C90 20, 70 10, 40 40 C60 50, 90 30, 110 0 Z" />
+            <path d="M90 0 C70 30, 40 20, 20 60 C40 70, 70 40, 90 0 Z" />
+            <path d="M120 20 C100 50, 80 40, 60 85 C75 90, 100 65, 120 20 Z" />
+          </svg>
+        </div>
+        <div className="leaf-vignette leaf-vignette-bl">
+          <svg viewBox="0 0 120 120" width="100%" height="100%" fill="rgba(74, 93, 62, 0.06)">
+            <path d="M0 100 C30 80, 50 90, 80 60 C65 50, 40 70, 0 100 Z" />
+            <path d="M20 120 C50 90, 80 100, 100 60 C80 50, 50 80, 20 120 Z" />
+          </svg>
+        </div>
+        <div className="leaf-vignette leaf-vignette-br">
+          <svg viewBox="0 0 120 120" width="100%" height="100%" fill="rgba(74, 93, 62, 0.06)">
+            <path d="M120 100 C90 80, 70 90, 40 60 C55 50, 80 70, 120 100 Z" />
+            <path d="M100 120 C70 90, 40 100, 20 60 C40 50, 70 80, 100 120 Z" />
+          </svg>
         </div>
       </div>
 
-      {/* Ripple Pond at Bottom Left */}
-      <div className="japanese-ripple-pond">
-        <div className="pond-ripple ripple-1"></div>
-        <div className="pond-ripple ripple-2"></div>
-        <div className="pond-ripple ripple-3"></div>
+      <div className="japanese-stony-mountain" style={{ zIndex: 2 }}>
+        <svg viewBox="0 0 160 400" preserveAspectRatio="none" style={{ width: "100%", height: "100%", overflow: "visible" }}>
+          <defs>
+            <linearGradient id="stone-light" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#a3b1bc" />
+              <stop offset="50%" stopColor="#768490" />
+              <stop offset="100%" stopColor="#55606a" />
+            </linearGradient>
+            <linearGradient id="stone-dark" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#5d666e" />
+              <stop offset="100%" stopColor="#2c3035" />
+            </linearGradient>
+            <linearGradient id="stone-accent" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#8794a0" />
+              <stop offset="100%" stopColor="#3d444a" />
+            </linearGradient>
+          </defs>
+          
+          {/* Base crevice depths */}
+          <path d="M 0 -30 Q 40 -50 70 -15 T 105 0 C 130 150, 85 280, 140 360 C 120 380, 125 390, 115 400 L 0 400 Z" fill="#151719" />
+          <path d="M 0 -30 Q 40 -50 70 -15 T 105 0 C 125 140, 80 270, 135 350 C 115 375, 120 385, 110 400 L 0 400 Z" fill="url(#stone-dark)" />
+
+          {/* Densely Stacked Natural River Cobblestones & Boulders */}
+          
+          {/* Row 1: Cap Stones */}
+          <path d="M 0 -30 C 25 -35, 55 -25, 60 5 C 40 15, 15 10, 0 5 Z" fill="url(#stone-light)" stroke="#272a2e" strokeWidth="1" />
+          <path d="M 3 -27 Q 25 -30 48 -10" fill="none" stroke="#dbe7f2" strokeWidth="1.2" opacity="0.7" strokeLinecap="round" /> {/* Highlight */}
+          
+          <path d="M 50 -20 C 70 -35, 95 -15, 105 0 C 105 30, 80 40, 55 35 C 45 25, 45 -5, 50 -20 Z" fill="url(#stone-accent)" stroke="#272a2e" strokeWidth="1" />
+          <path d="M 58 -22 Q 80 -25 98 -5" fill="none" stroke="#dbe7f2" strokeWidth="1.2" opacity="0.7" strokeLinecap="round" /> {/* Highlight */}
+          
+          {/* Row 2: Upper Mid Stones */}
+          <path d="M 0 5 C 20 10, 40 20, 35 50 C 15 60, 0 45, 0 35 Z" fill="url(#stone-dark)" stroke="#1c1e21" strokeWidth="1" />
+          <path d="M 35 30 C 55 20, 85 25, 80 60 C 60 75, 35 70, 35 35 Z" fill="url(#stone-light)" stroke="#272a2e" strokeWidth="1" />
+          <path d="M 42 32 Q 62 25 78 45" fill="none" stroke="#dbe7f2" strokeWidth="1.2" opacity="0.7" strokeLinecap="round" />
+          
+          <path d="M 0 45 C 18 50, 28 80, 18 110 C 5 120, 0 105, 0 80 Z" fill="url(#stone-accent)" stroke="#1c1e21" strokeWidth="1" />
+          
+          {/* Row 3: Center Stones */}
+          <path d="M 18 100 C 40 90, 70 100, 65 140 C 45 160, 20 140, 18 100 Z" fill="url(#stone-dark)" stroke="#1c1e21" strokeWidth="1" />
+          <path d="M 23 103 Q 45 95 62 120" fill="none" stroke="#dbe7f2" strokeWidth="1.2" opacity="0.7" strokeLinecap="round" />
+          
+          <path d="M 0 105 C 15 115, 25 150, 15 190 C 0 200, 0 170, 0 140 Z" fill="url(#stone-light)" stroke="#272a2e" strokeWidth="1" />
+          <path d="M 2 110 Q 14 125 12 165" fill="none" stroke="#dbe7f2" strokeWidth="1.2" opacity="0.7" strokeLinecap="round" />
+
+          {/* Row 4: Lower Mid Stones */}
+          <path d="M 15 180 C 45 165, 80 180, 75 230 C 45 250, 20 230, 15 180 Z" fill="url(#stone-accent)" stroke="#272a2e" strokeWidth="1" />
+          <path d="M 22 182 Q 52 170 72 205" fill="none" stroke="#dbe7f2" strokeWidth="1.2" opacity="0.7" strokeLinecap="round" />
+          
+          <path d="M 0 185 C 10 200, 15 240, 5 290 C 0 300, 0 270, 0 220 Z" fill="url(#stone-dark)" stroke="#1c1e21" strokeWidth="1" />
+          
+          <path d="M 5 285 C 35 270, 65 290, 60 340 C 35 360, 15 340, 5 285 Z" fill="url(#stone-light)" stroke="#272a2e" strokeWidth="1" />
+          <path d="M 10 287 Q 40 275 58 315" fill="none" stroke="#dbe7f2" strokeWidth="1.2" opacity="0.7" strokeLinecap="round" />
+
+          {/* Row 5: Bottom Base Stones */}
+          <path d="M 60 330 C 90 315, 125 325, 115 400 L 50 400 Z" fill="url(#stone-dark)" stroke="#1c1e21" strokeWidth="1" />
+          <path d="M 0 285 C 25 300, 35 365, 0 400 Z" fill="url(#stone-accent)" stroke="#272a2e" strokeWidth="1" />
+
+          {/* Detailed Hanging Ivy Vines & Leaves */}
+          <path d="M 55 35 Q 50 60 55 85 Q 58 95 53 110" fill="none" stroke="#485c3b" strokeWidth="1.8" strokeLinecap="round" opacity="0.85" />
+          <circle cx="53" cy="50" r="3" fill="#5c7a4b" stroke="#374b2a" strokeWidth="0.5" />
+          <circle cx="49" cy="70" r="2.5" fill="#4d663e" stroke="#374b2a" strokeWidth="0.5" />
+          <circle cx="56" cy="80" r="3.2" fill="#5c7a4b" stroke="#374b2a" strokeWidth="0.5" />
+          <circle cx="54" cy="98" r="2" fill="#4d663e" stroke="#374b2a" strokeWidth="0.5" />
+
+          <path d="M 25 120 Q 30 145 24 175" fill="none" stroke="#3d4f32" strokeWidth="1.5" strokeLinecap="round" opacity="0.8" />
+          <circle cx="28" cy="135" r="2.2" fill="#4d663e" stroke="#293d20" strokeWidth="0.5" />
+          <circle cx="23" cy="155" r="2.8" fill="#3d5231" stroke="#293d20" strokeWidth="0.5" />
+
+          {/* Crevice Moss Details */}
+          <path d="M 45 10 Q 55 25 55 35" fill="none" stroke="#5c7a4b" strokeWidth="4" strokeLinecap="round" opacity="0.85" />
+          
+          {/* Ledge Peak Spillover Edge */}
+          <path d="M 0 -30 Q 40 -50 70 -15 T 105 0" fill="none" stroke="#688059" strokeWidth="5" strokeLinecap="round" opacity="0.9" />
+        </svg>
       </div>
 
-      <header className="header" style={{ backdropFilter: "blur(4px)", borderBottom: "1px solid var(--border-subtle)", background: "rgba(250, 246, 238, 0.85)" }}>
+      <div className="japanese-water-spout">
+        <svg width="100%" height="100%" viewBox="0 0 60 2000" preserveAspectRatio="none" style={{ overflow: "visible" }}>
+          <defs>
+            <filter id="water-turbulence">
+              <feTurbulence type="fractalNoise" baseFrequency="0.03 0.18" numOctaves="3" result="noise" />
+              <feDisplacementMap in="SourceGraphic" in2="noise" scale="8" xChannelSelector="R" yChannelSelector="G" />
+            </filter>
+            <linearGradient id="water-fall-bg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="rgba(255, 255, 255, 0)" />
+              <stop offset="15%" stopColor="rgba(165, 205, 227, 0.22)" />
+              <stop offset="55%" stopColor="rgba(226, 241, 247, 0.16)" />
+              <stop offset="85%" stopColor="rgba(165, 205, 227, 0.08)" />
+              <stop offset="100%" stopColor="rgba(255, 255, 255, 0)" />
+            </linearGradient>
+            <linearGradient id="water-fall-foam" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="rgba(255, 255, 255, 0.95)" />
+              <stop offset="25%" stopColor="rgba(230, 242, 247, 0.45)" />
+              <stop offset="75%" stopColor="rgba(205, 225, 235, 0.35)" />
+              <stop offset="100%" stopColor="rgba(255, 255, 255, 0.1)" />
+            </linearGradient>
+          </defs>
+          
+          {/* Curved Background Water Deep Volume */}
+          <path d="M 5 0 C 12 300, 2 600, 15 1000 C 28 1400, 8 1700, 10 2000 L 50 2000 C 48 1700, 68 1400, 55 1000 C 42 600, 52 300, 45 0 Z" fill="url(#water-fall-bg)" opacity="0.65" />
+          
+          {/* Curved foaming rapids under turbulence */}
+          <g filter="url(#water-turbulence)">
+            <path d="M 5 0 C 12 300, 2 600, 15 1000 C 28 1400, 8 1700, 10 2000 L 50 2000 C 48 1700, 68 1400, 55 1000 C 42 600, 52 300, 45 0 Z" fill="url(#water-fall-foam)" opacity="0.5" />
+            
+            {/* Curved flowing highlight streams */}
+            <path d="M 12 0 C 19 300, 9 600, 22 1000 C 35 1400, 15 1700, 17 2000" fill="none" stroke="#ffffff" strokeWidth="3" className="water-streak-fast" strokeDasharray="30 100" strokeLinecap="round" opacity="0.85" />
+            <path d="M 23 0 C 30 300, 20 600, 33 1000 C 46 1400, 26 1700, 28 2000" fill="none" stroke="#e6f2f7" strokeWidth="4" className="water-streak-slow" strokeDasharray="50 150" strokeLinecap="round" opacity="0.65" />
+            <path d="M 34 0 C 41 300, 31 600, 44 1000 C 57 1400, 37 1700, 39 2000" fill="none" stroke="#ffffff" strokeWidth="2.5" className="water-streak-fastest" strokeDasharray="20 80" strokeLinecap="round" opacity="0.9" />
+            <path d="M 44 0 C 51 300, 41 600, 54 1000 C 67 1400, 47 1700, 49 2000" fill="none" stroke="#e6f2f7" strokeWidth="3.5" className="water-streak-slow" strokeDasharray="40 120" strokeLinecap="round" opacity="0.7" />
+          </g>
+        </svg>
+      </div>
+
+      <div className="japanese-ripple-pond">
+        <div style={{ position: "absolute", bottom: 0, left: 0, width: "100%", height: "100%", background: "linear-gradient(to top, rgba(74, 134, 166, 0.65) 0%, rgba(110, 168, 196, 0.35) 40%, transparent 100%)" }}></div>
+        <svg viewBox="0 0 1000 100" preserveAspectRatio="none" style={{ position: "absolute", bottom: 0, left: 0, width: "200%", height: "100%", opacity: 0.8 }} className="flowing-water-wave">
+          <path d="M 0 50 Q 125 70 250 50 T 500 50 T 750 50 T 1000 50" fill="none" stroke="rgba(74, 134, 166, 0.6)" strokeWidth="2.5" />
+          <path d="M 0 65 Q 125 45 250 65 T 500 65 T 750 65 T 1000 65" fill="none" stroke="rgba(74, 134, 166, 0.4)" strokeWidth="3" />
+          <path d="M 0 80 Q 125 100 250 80 T 500 80 T 750 80 T 1000 80" fill="none" stroke="rgba(74, 134, 166, 0.8)" strokeWidth="2" />
+        </svg>
+        <svg width="100%" height="100%" style={{ position: "absolute", top: 0, left: 0 }}>
+          <ellipse cx="10%" cy="85%" rx="60" ry="8" fill="none" stroke="rgba(165,205,227,0.4)" strokeWidth="1.5" className="pond-ripple-svg ripple-delay-1" />
+          <ellipse cx="10%" cy="85%" rx="100" ry="14" fill="none" stroke="rgba(165,205,227,0.2)" strokeWidth="1" className="pond-ripple-svg ripple-delay-2" />
+          <ellipse cx="45%" cy="75%" rx="80" ry="12" fill="none" stroke="rgba(165,205,227,0.3)" strokeWidth="1.5" className="pond-ripple-svg ripple-delay-3" />
+          <ellipse cx="45%" cy="75%" rx="130" ry="18" fill="none" stroke="rgba(165,205,227,0.15)" strokeWidth="1" className="pond-ripple-svg ripple-delay-4" />
+          <ellipse cx="85%" cy="80%" rx="70" ry="10" fill="none" stroke="rgba(165,205,227,0.35)" strokeWidth="1.5" className="pond-ripple-svg ripple-delay-5" />
+          <ellipse cx="85%" cy="80%" rx="115" ry="16" fill="none" stroke="rgba(165,205,227,0.15)" strokeWidth="1" className="pond-ripple-svg ripple-delay-6" />
+        </svg>
+        <div className="pond-koi-fish koi-1" style={{ position: "absolute", left: "10%", bottom: "25px", transform: "scale(0.85) rotate(70deg)", opacity: 0.85, filter: "drop-shadow(2px 4px 4px rgba(0,0,0,0.3))" }}>
+          <svg viewBox="0 0 100 100" width="45" height="45">
+            <path d="M 50 80 Q 25 105 50 95 Q 75 105 50 80" fill="#cc4e28" opacity="0.6" />
+            <path d="M 35 45 Q 10 65 35 55" fill="#cc4e28" opacity="0.7" />
+            <path d="M 65 45 Q 90 65 65 55" fill="#cc4e28" opacity="0.7" />
+            <path d="M 50 10 C 20 30, 30 75, 50 85 C 70 75, 80 30, 50 10 Z" fill="#e85d31" />
+            <path d="M 50 15 C 35 25, 60 35, 50 45 C 40 35, 65 25, 50 15 Z" fill="#fcf9f2" opacity="0.9" />
+          </svg>
+        </div>
+        <div className="pond-koi-fish koi-2" style={{ position: "absolute", left: "86%", bottom: "20px", transform: "scale(0.95) rotate(-25deg)", opacity: 0.8, filter: "drop-shadow(2px 4px 4px rgba(0,0,0,0.3))" }}>
+          <svg viewBox="0 0 100 100" width="45" height="45">
+            <path d="M 50 80 Q 25 105 50 95 Q 75 105 50 80" fill="#e8e1d5" opacity="0.6" />
+            <path d="M 35 45 Q 10 65 35 55" fill="#e8e1d5" opacity="0.7" />
+            <path d="M 65 45 Q 90 65 65 55" fill="#e8e1d5" opacity="0.7" />
+            <path d="M 50 10 C 20 30, 30 75, 50 85 C 70 75, 80 30, 50 10 Z" fill="#fcf9f2" />
+            <path d="M 50 20 C 35 30, 60 45, 50 55 C 40 45, 65 30, 50 20 Z" fill="#cc4e28" opacity="0.9" />
+          </svg>
+        </div>
+        <div className="pond-koi-fish koi-3" style={{ position: "absolute", left: "93%", bottom: "50px", transform: "scale(0.7) rotate(110deg)", opacity: 0.75, filter: "drop-shadow(2px 4px 4px rgba(0,0,0,0.3))" }}>
+          <svg viewBox="0 0 100 100" width="45" height="45">
+            <path d="M 50 80 Q 25 105 50 95 Q 75 105 50 80" fill="#bfa145" opacity="0.6" />
+            <path d="M 35 45 Q 10 65 35 55" fill="#bfa145" opacity="0.7" />
+            <path d="M 65 45 Q 90 65 65 55" fill="#bfa145" opacity="0.7" />
+            <path d="M 50 10 C 20 30, 30 75, 50 85 C 70 75, 80 30, 50 10 Z" fill="#dfbc54" />
+            <path d="M 45 45 C 35 55, 55 60, 48 70 C 40 60, 55 55, 45 45 Z" fill="#fcf9f2" opacity="0.6" />
+          </svg>
+        </div>
+        <div className="advanced-lily-pad" style={{ left: "12%", bottom: "40px", transform: "scale(0.85) rotate(15deg)" }}>
+          <svg viewBox="0 0 100 100">
+            <path d="M50 5 C75 5 95 25 95 50 C95 75 75 95 50 95 C25 95 5 75 5 50 C5 35 15 20 30 10 L50 50 Z" fill="#4d6641" stroke="#384f2e" strokeWidth="2" />
+            <path d="M50 50 L35 15 M50 50 L15 35 M50 50 L15 65 M50 50 L35 85 M50 50 L65 85 M50 50 L85 65 M50 50 L85 35 M50 50 L65 15" stroke="#384f2e" strokeWidth="1" opacity="0.6" />
+          </svg>
+        </div>
+        <div className="advanced-lily-pad" style={{ left: "85%", bottom: "10px", transform: "scale(1.1) rotate(-25deg)" }}>
+          <svg viewBox="0 0 100 100">
+            <path d="M50 5 C75 5 95 25 95 50 C95 75 75 95 50 95 C25 95 5 75 5 50 C5 35 15 20 30 10 L50 50 Z" fill="#58754b" stroke="#384f2e" strokeWidth="2" />
+            <path d="M50 50 L35 15 M50 50 L15 35 M50 50 L15 65 M50 50 L35 85 M50 50 L65 85 M50 50 L85 65 M50 50 L85 35 M50 50 L65 15" stroke="#384f2e" strokeWidth="1" opacity="0.6" />
+          </svg>
+        </div>
+        <div className="advanced-lily-pad" style={{ left: "92%", bottom: "30px", transform: "scale(0.6) rotate(60deg)" }}>
+          <svg viewBox="0 0 100 100">
+            <path d="M50 5 C75 5 95 25 95 50 C95 75 75 95 50 95 C25 95 5 75 5 50 C5 35 15 20 30 10 L50 50 Z" fill="#435c38" stroke="#293d20" strokeWidth="2" />
+            <path d="M50 50 L35 15 M50 50 L15 35 M50 50 L15 65 M50 50 L35 85 M50 50 L65 85 M50 50 L85 65 M50 50 L85 35 M50 50 L65 15" stroke="#293d20" strokeWidth="1" opacity="0.6" />
+          </svg>
+        </div>
+        
+        {/* Waterfall Splash Spray */}
+        <div className="waterfall-splash" style={{ position: "absolute", left: "62px", bottom: "95px", zIndex: 3, pointerEvents: "none" }}>
+          <svg width="45" height="50" viewBox="0 0 45 50">
+            <ellipse cx="22.5" cy="45" rx="18" ry="4" fill="none" stroke="rgba(255,255,255,0.7)" strokeWidth="1.2" className="pond-ripple-svg ripple-delay-1" />
+            <circle cx="12" cy="38" r="3.5" fill="rgba(255,255,255,0.9)" className="splash-droplet droplet-1" />
+            <circle cx="22.5" cy="30" r="2.5" fill="rgba(255,255,255,0.95)" className="splash-droplet droplet-2" />
+            <circle cx="32" cy="35" r="3" fill="rgba(255,255,255,0.9)" className="splash-droplet droplet-3" />
+            <circle cx="17" cy="22" r="1.8" fill="rgba(255,255,255,1)" className="splash-droplet droplet-4" />
+            <circle cx="28" cy="26" r="2" fill="rgba(255,255,255,1)" className="splash-droplet droplet-5" />
+          </svg>
+        </div>
+      </div>
+
+      <div
+        className={`japanese-water-wheel ${wheelOpen ? "menu-open" : ""}`}
+        style={{
+          transform: wheelOpen ? `rotate(${activeWheelIndex * -25}deg)` : undefined
+        }}
+        onClick={() => setWheelOpen(!wheelOpen)}
+        title="Japanese Mizuguruma Water Wheel"
+      >
+        <svg viewBox="0 0 100 100" style={{ width: "100%", height: "100%", filter: "drop-shadow(4px 8px 12px rgba(0,0,0,0.5))" }}>
+          <defs>
+            <linearGradient id="wood-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#664c38" />
+              <stop offset="30%" stopColor="#4d3525" />
+              <stop offset="70%" stopColor="#3d2a1c" />
+              <stop offset="100%" stopColor="#24180f" />
+            </linearGradient>
+            <linearGradient id="metal-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#d6d6d6" />
+              <stop offset="30%" stopColor="#9e9e9e" />
+              <stop offset="70%" stopColor="#5c5c5c" />
+              <stop offset="100%" stopColor="#383838" />
+            </linearGradient>
+            <linearGradient id="gold-grad" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="#ffe891" />
+              <stop offset="50%" stopColor="#dfb743" />
+              <stop offset="100%" stopColor="#876513" />
+            </linearGradient>
+          </defs>
+          {/* Outer Wood Rim base */}
+          <circle cx="50" cy="50" r="46" fill="none" stroke="url(#wood-grad)" strokeWidth="6" />
+          <circle cx="50" cy="50" r="43" fill="none" stroke="#1c130b" strokeWidth="1" />
+          
+          {/* Outer Gold Band Accent */}
+          <circle cx="50" cy="50" r="40" fill="none" stroke="url(#gold-grad)" strokeWidth="1.5" />
+          
+          {/* Spoke brackets and spokes */}
+          <g stroke="url(#wood-grad)" strokeWidth="4.5" strokeLinecap="round">
+            <line x1="50" y1="12" x2="50" y2="88" />
+            <line x1="12" y1="50" x2="88" y2="50" />
+            <line x1="23.2" y1="23.2" x2="76.8" y2="76.8" />
+            <line x1="23.2" y1="76.8" x2="76.8" y2="23.2" />
+          </g>
+          
+          {/* Metal Spoke Reinforcements */}
+          <g stroke="url(#metal-grad)" strokeWidth="1.5" opacity="0.85">
+            <line x1="50" y1="18" x2="50" y2="82" />
+            <line x1="18" y1="50" x2="82" y2="50" />
+            <line x1="27.4" y1="27.4" x2="72.6" y2="72.6" />
+            <line x1="27.4" y1="72.6" x2="72.6" y2="27.4" />
+          </g>
+          
+          {/* Inner Ring */}
+          <circle cx="50" cy="50" r="28" fill="none" stroke="url(#wood-grad)" strokeWidth="3" />
+          <circle cx="50" cy="50" r="29.5" fill="none" stroke="#1c130b" strokeWidth="0.5" />
+          <circle cx="50" cy="50" r="26.5" fill="none" stroke="#1c130b" strokeWidth="0.5" />
+          
+          {/* Core Rivet and Gold Accent Ring */}
+          <circle cx="50" cy="50" r="14" fill="url(#wood-grad)" stroke="#1c130b" strokeWidth="2.5" />
+          <circle cx="50" cy="50" r="9" fill="url(#metal-grad)" stroke="#111111" strokeWidth="1" />
+          <circle cx="50" cy="50" r="4" fill="url(#gold-grad)" stroke="#4d3525" strokeWidth="0.75" />
+          
+          {/* Core details */}
+          <circle cx="50" cy="42.5" r="1" fill="#111" />
+          <circle cx="50" cy="57.5" r="1" fill="#111" />
+          <circle cx="42.5" cy="50" r="1" fill="#111" />
+          <circle cx="57.5" cy="50" r="1" fill="#111" />
+          
+          {/* Perimeter Water Buckets (Detailed wood & metal scoops) */}
+          {[0, 45, 90, 135, 180, 225, 270, 315].map((angle, idx) => (
+            <g key={idx} transform={`rotate(${angle}, 50, 50)`}>
+              <path d="M 42 2 L 58 2 L 55 13 L 45 13 Z" fill="url(#wood-grad)" stroke="#1c130b" strokeWidth="1" />
+              <path d="M 42 2 L 58 2 L 58 4 L 42 4 Z" fill="url(#metal-grad)" stroke="#111" strokeWidth="0.5" />
+              <path d="M 45 13 L 55 13 L 50 20 Z" fill="#111" opacity="0.45" />
+            </g>
+          ))}
+        </svg>
+      </div>
+
+      <header className="header" style={{ backdropFilter: "blur(4px)", borderBottom: "1px double rgba(184, 122, 45, 0.25)", background: "rgba(250, 246, 238, 0.9)", zIndex: 999, padding: "10px 24px" }}>
         <div className="header-left">
-          <div className="header-logo" style={{ background: "var(--border-accent)", color: "var(--bg-primary)" }}>P</div>
+          <div className="header-logo" style={{ background: "#b53e3e", color: "#ffffff", borderRadius: "2px", width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Georgia, serif", fontSize: "14px", fontWeight: "bold", boxShadow: "0 0 0 1.5px #b53e3e, 0 1px 3px rgba(0,0,0,0.15)", marginRight: "12px" }} title="理 (Ri) - Reason/Logic Seal">理</div>
           <div>
-            <div className="header-title">PolyRAG</div>
-            <div className="header-subtitle">Multimodal RAG Archival Search</div>
+            <div className="header-title" style={{ fontFamily: "Georgia, serif", fontWeight: 600, letterSpacing: "0.5px", color: "var(--text-primary)" }}>PolyRAG</div>
+            <div className="header-subtitle" style={{ fontFamily: "Georgia, serif", fontStyle: "italic", color: "var(--text-secondary)", fontSize: "10px", letterSpacing: "0.2px" }}>Multimodal RAG Archival Search</div>
           </div>
         </div>
         <div className="header-right">
@@ -541,17 +1146,41 @@ function MainApp({ session }) {
             </div>
           )}
           {health && (
-            <div className="health-badge" style={{ marginRight: "1rem" }}>
-              <span className="health-dot"></span>
-              {health.total_queries} queries · {Math.round(health.avg_latency_ms)}ms avg
+            <div className="health-badge" style={{ marginRight: "1rem", color: "var(--text-secondary)", fontSize: "11px", fontFamily: "var(--font-mono)", border: "1px solid rgba(184, 122, 45, 0.12)", background: "rgba(250, 246, 238, 0.5)", padding: "4px 10px", borderRadius: "2px" }}>
+              [ {health.total_queries} QUERIES · {Math.round(health.avg_latency_ms)}MS AVG ]
             </div>
           )}
           <button
+            onClick={() => setShowHints(!showHints)}
+            className={`hints-bulb-btn ${showHints ? "active" : ""}`}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "4px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              marginRight: "0.5rem",
+              transition: "all 0.25s cubic-bezier(0.16, 1, 0.3, 1)"
+            }}
+            title="Click for Ledger Hints & Navigation Map"
+          >
+            <svg width="24" height="24" viewBox="0 0 24 24" fill={showHints ? "rgba(184, 122, 45, 0.25)" : "none"} xmlns="http://www.w3.org/2000/svg">
+              <path d="M9 21H15" stroke={showHints ? "var(--accent-amber)" : "var(--text-secondary)"} strokeWidth="2" strokeLinecap="round"/>
+              <path d="M10 18H14" stroke={showHints ? "var(--accent-amber)" : "var(--text-secondary)"} strokeWidth="2" strokeLinecap="round"/>
+              <path d="M12 2C7.58 2 4 5.58 4 10C4 12.78 5.42 15.22 7.58 16.59C8.47 17.15 9 18.06 9 19V19.5" stroke={showHints ? "var(--accent-amber)" : "var(--text-secondary)"} strokeWidth="2" strokeLinecap="round"/>
+              <path d="M12 2C16.42 2 20 5.58 20 10C20 12.78 18.58 15.22 16.42 16.59C15.53 17.15 15 18.06 15 19V19.5" stroke={showHints ? "var(--accent-amber)" : "var(--text-secondary)"} strokeWidth="2" strokeLinecap="round"/>
+              <path d="M12 6V12" stroke={showHints ? "var(--accent-amber)" : "var(--text-secondary)"} strokeWidth="2" strokeLinecap="round"/>
+              <path d="M9.5 9.5H14.5" stroke={showHints ? "var(--accent-amber)" : "var(--text-secondary)"} strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+          </button>
+          <button
             onClick={() => setActiveModal("settings")}
             className="header-settings-btn"
-            style={{ padding: "6px 12px", border: "1px solid var(--border-accent)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "11px", cursor: "pointer", fontFamily: "var(--font-mono)", fontWeight: 700 }}
+            style={{ padding: "5px 12px", border: "1px solid var(--border-accent)", background: "none", color: "var(--text-primary)", fontSize: "10px", cursor: "pointer", fontFamily: "Georgia, serif", fontWeight: 600, letterSpacing: "0.5px", textTransform: "uppercase", transition: "all 0.2s ease" }}
           >
-            SYSTEM SETUP
+            [ SETUP SYSTEM ]
           </button>
         </div>
       </header>
@@ -655,149 +1284,269 @@ function MainApp({ session }) {
           <div className="scroll-wood-roller bottom-roller"></div>
         </div>
       </div>
-      {/* Steampunk Mechanical Cog & Weapon Wheel */}
-      <div className={`cog-container ${wheelOpen ? "open" : ""}`} onClick={() => setWheelOpen(!wheelOpen)} title="Rotate Japanese Mizuguruma Water Wheel">
-        <svg viewBox="0 0 100 100" className="cog-svg">
-          {/* Outer wooden rim */}
-          <circle cx="50" cy="50" r="45" fill="none" stroke="#4a3a2c" strokeWidth="5" />
-          <circle cx="50" cy="50" r="33" fill="none" stroke="#4a3a2c" strokeWidth="2" />
-          {/* Center hub */}
-          <circle cx="50" cy="50" r="12" fill="#2d2218" stroke="#4a3a2c" strokeWidth="3" />
-          <circle cx="50" cy="50" r="4" fill="#faf6ee" />
-          {/* Wooden Spokes */}
-          <g stroke="#4a3a2c" strokeWidth="3">
-            <line x1="50" y1="5" x2="50" y2="95" />
-            <line x1="5" y1="50" x2="95" y2="50" />
-            <line x1="18.2" y1="18.2" x2="81.8" y2="81.8" />
-            <line x1="18.2" y1="81.8" x2="81.8" y2="18.2" />
-          </g>
-          {/* Wooden Buckets/Scoops on Rim */}
-          <g fill="#4a3a2c">
-            <path d="M 46 5 L 54 5 L 51 14 L 47 14 Z" />
-            <path d="M 46 95 L 54 95 L 51 86 L 47 86 Z" />
-            <path d="M 5 46 L 5 54 L 14 51 L 14 47 Z" />
-            <path d="M 95 46 L 95 54 L 86 51 L 86 47 Z" />
-            <path d="M 18.2 18.2 L 23.8 23.8 L 20.8 26.8 L 15.2 21.2 Z" />
-            <path d="M 81.8 81.8 L 76.2 76.2 L 79.2 73.2 L 84.8 78.8 Z" />
-            <path d="M 18.2 81.8 L 23.8 76.2 L 20.8 73.2 L 15.2 78.8 Z" />
-            <path d="M 81.8 18.2 L 76.2 23.8 L 79.2 26.8 L 84.8 21.2 Z" />
-          </g>
-        </svg>
-      </div>
-
       {wheelOpen && (
         <div className="weapon-wheel-overlay" onClick={() => setWheelOpen(false)}>
-          <div className="weapon-wheel-menu" style={{ width: "260px", height: "460px" }} onClick={e => e.stopPropagation()}>
-            <svg viewBox="0 0 240 480" className="weapon-wheel-svg">
-              {[
-                {
-                  id: "clear",
-                  start: -90,
-                  end: -60,
-                  label: "CLEAR",
-                  desc: "Clear Chat Dossier Ledger",
-                  action: () => setMessages([]),
-                },
-                {
-                  id: "files",
-                  start: -60,
-                  end: -30,
-                  label: "FILES",
-                  desc: "Manage and Upload RAG Documents",
-                  action: () => setActiveModal("files"),
-                },
-                {
-                  id: "health",
-                  start: -30,
-                  end: 0,
-                  label: "HEALTH",
-                  desc: "Inspect Database & Pipeline Health Metrics",
-                  action: () => setActiveModal("health"),
-                },
-                {
-                  id: "planner",
-                  start: 0,
-                  end: 30,
-                  label: "PLANNER",
-                  desc: config.enablePlanner ? "Deactivate Context-Based Planner Expert" : "Activate Context-Based Planner Expert",
-                  action: () => {
-                    const nextPlanner = !config.enablePlanner;
-                    setConfig(prev => ({ ...prev, enablePlanner: nextPlanner }));
-                    updateConfig({ ...config, enablePlanner: nextPlanner })
-                      .then(() => alert(`[ROUTING STATUS] Planner ${nextPlanner ? "Activated" : "Deactivated"}`))
-                      .catch(() => {});
-                  },
-                },
-                {
-                  id: "settings",
-                  start: 30,
-                  end: 60,
-                  label: "SETTINGS",
-                  desc: "Configure RAG Models & System API Keys",
-                  action: () => setActiveModal("settings"),
-                },
-                {
-                  id: "toggle-rag",
-                  start: 60,
-                  end: 90,
-                  label: "RAG TOGGLE",
-                  desc: selectedFileIds.size > 0 ? "Deselect All Active RAG Sources" : "Select All Active RAG Sources",
-                  action: () => {
-                    if (selectedFileIds.size > 0) {
-                      setSelectedFileIds(new Set());
-                    } else {
-                      setSelectedFileIds(new Set(files.filter(f => f.status === "indexed" && f.id).map(f => f.id)));
+          <div
+            style={{
+              position: "fixed",
+              bottom: "-20px",
+              left: "-112px",
+              width: "225px",
+              height: "225px",
+              zIndex: 1001,
+              pointerEvents: "none"
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <svg
+              viewBox="0 0 360 360"
+              style={{
+                width: "540px",
+                height: "540px",
+                position: "absolute",
+                left: "-157.5px",
+                bottom: "-157.5px",
+                overflow: "visible",
+                pointerEvents: "none"
+              }}
+            >
+              {/* Stationary Pointer Arrow pointing directly at active slot (0 degrees / horizontal right) */}
+              <g transform="translate(180, 180)">
+                <polygon points="175,-8 163,0 175,8" fill="#dfb743" stroke="#5e5041" strokeWidth="1.5" style={{ filter: "drop-shadow(0 2px 4px rgba(0,0,0,0.35))" }} />
+              </g>
+
+              {/* Rotating slices group - centers active slice at 0 degrees horizontally */}
+              <g
+                style={{
+                  transform: `rotate(${-(-62.5 + activeWheelIndex * 25)}deg)`,
+                  transformOrigin: "180px 180px",
+                  transition: "transform 0.6s cubic-bezier(0.16, 1, 0.3, 1)"
+                }}
+              >
+                {[
+                  { id: "clear", label: "CLEAR", start: -75, end: -50, action: () => setMessages([]) },
+                  { id: "files", label: "FILES", start: -50, end: -25, action: () => setActiveModal("files") },
+                  { id: "health", label: "HEALTH", start: -25, end: 0, action: () => setActiveModal("health") },
+                  { id: "planner", label: "PLANNER", start: 0, end: 25,
+                    action: () => {
+                      const nextPlanner = !config.enablePlanner;
+                      setConfig(prev => ({ ...prev, enablePlanner: nextPlanner }));
+                      updateConfig({ ...config, enablePlanner: nextPlanner })
+                        .then(() => alert(`[ROUTING STATUS] Planner ${nextPlanner ? "Activated" : "Deactivated"}`))
+                        .catch(() => {});
                     }
                   },
-                },
-              ].map((slice) => {
-                const isHovered = hoveredSlice === slice.id;
-                const path = getArcPath(0, 240, 65, 220, slice.start, slice.end);
-                const textPos = getMidpointCoords(0, 240, 145, (slice.start + slice.end) / 2);
-
-                return (
-                  <g
-                    key={slice.id}
-                    className="weapon-wheel-sector"
-                    onMouseEnter={() => setHoveredSlice(slice.id)}
-                    onMouseLeave={() => setHoveredSlice(null)}
-                    onClick={() => {
-                      slice.action();
-                      setWheelOpen(false);
-                    }}
-                  >
-                    <path
-                      d={path}
-                      className={`weapon-wheel-path ${isHovered ? "hovered" : ""}`}
-                    />
-                    <text
-                      x={textPos.x}
-                      y={textPos.y}
-                      transform={`rotate(${(slice.start + slice.end) / 2}, ${textPos.x}, ${textPos.y})`}
-                      className={`weapon-wheel-text ${isHovered ? "hovered" : ""}`}
-                      style={{ fontSize: "10px", fontWeight: "700" }}
+                  { id: "settings", label: "SETTINGS", start: 25, end: 50, action: () => setActiveModal("settings") },
+                  { id: "toggle-rag", label: "RAG TOGGLE", start: 50, end: 75,
+                    action: () => {
+                      if (selectedFileIds.size > 0) {
+                        setSelectedFileIds(new Set());
+                      } else {
+                        setSelectedFileIds(new Set(files.filter(f => f.status === "indexed" && f.id).map(f => f.id)));
+                      }
+                    }
+                  }
+                ].map((slice, idx) => {
+                  const isActive = activeWheelIndex === idx;
+                  const arcD = getArcPath(180, 180, 78, 172, slice.start, slice.end);
+                  const textCoords = getMidpointCoords(180, 180, 125, (slice.start + slice.end) / 2);
+                  return (
+                    <g
+                      key={slice.id}
+                      onClick={() => setActiveWheelIndex(idx)}
+                      style={{ cursor: "pointer", pointerEvents: "auto" }}
                     >
-                      {slice.label}
-                    </text>
-                  </g>
-                );
-              })}
+                      <path
+                        d={arcD}
+                        fill={isActive ? "rgba(140, 59, 48, 0.9)" : "rgba(251, 248, 240, 0.95)"}
+                        stroke="#5e5041"
+                        strokeWidth="2"
+                        style={{ transition: "all 0.25s ease" }}
+                      />
+                      <text
+                        x={textCoords.x}
+                        y={textCoords.y}
+                        transform={`rotate(${(slice.start + slice.end) / 2}, ${textCoords.x}, ${textCoords.y})`}
+                        fill={isActive ? "#ffffff" : "var(--text-primary)"}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        style={{
+                          fontFamily: "var(--font-mono)",
+                          fontWeight: "700",
+                          fontSize: "11px",
+                          pointerEvents: "none",
+                          letterSpacing: "0.5px"
+                        }}
+                      >
+                        {slice.label}
+                      </text>
+                    </g>
+                  );
+                })}
+              </g>
+
+              <g
+                onClick={() => setActiveWheelIndex(prev => (prev === 0 ? 5 : prev - 1))}
+                style={{ cursor: "pointer", pointerEvents: "auto" }}
+              >
+                <path
+                  d={getArcPath(180, 180, 78, 172, -90, -77)}
+                  fill="#f4eedf"
+                  stroke="#5e5041"
+                  strokeWidth="2"
+                />
+                <text
+                  x={getMidpointCoords(180, 180, 125, -83.5).x}
+                  y={getMidpointCoords(180, 180, 125, -83.5).y}
+                  fill="var(--text-primary)"
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  style={{ fontFamily: "var(--font-mono)", fontWeight: "bold", fontSize: "14px" }}
+                >
+                  ▲
+                </text>
+              </g>
+
+              <g
+                onClick={() => setActiveWheelIndex(prev => (prev === 5 ? 0 : prev + 1))}
+                style={{ cursor: "pointer", pointerEvents: "auto" }}
+              >
+                <path
+                  d={getArcPath(180, 180, 78, 172, 77, 90)}
+                  fill="#f4eedf"
+                  stroke="#5e5041"
+                  strokeWidth="2"
+                />
+                <text
+                  x={getMidpointCoords(180, 180, 125, 83.5).x}
+                  y={getMidpointCoords(180, 180, 125, 83.5).y}
+                  fill="var(--text-primary)"
+                  textAnchor="middle"
+                  dominantBaseline="middle"
+                  style={{ fontFamily: "var(--font-mono)", fontWeight: "bold", fontSize: "14px" }}
+                >
+                  ▼
+                </text>
+              </g>
             </svg>
-            
-            {/* Center Description Display */}
-            <div className="weapon-wheel-center-display" style={{ left: "240px" }}>
-              <div className="weapon-wheel-center-label">[ MIZUGURUMA WHEEL ]</div>
-              <div className="weapon-wheel-center-desc">
-                {hoveredSlice
-                  ? [
-                      { id: "clear", desc: "Clear all records in chat search ledger" },
-                      { id: "files", desc: "Open source registry panel to ingest or select documents" },
-                      { id: "health", desc: "Inspect current metrics, average latency and gate recommendation" },
-                      { id: "planner", desc: config.enablePlanner ? "Disable deep multihop contextual planning expert" : "Enable deep multihop contextual planning expert" },
-                      { id: "settings", desc: "Configure local LLM servers, Groq, Gemini keys & parser depth" },
-                      { id: "toggle-rag", desc: selectedFileIds.size > 0 ? "Clear active file filter constraints (default all)" : "Engage constraint filtering on all indexed materials" },
-                    ].find(d => d.id === hoveredSlice)?.desc
-                  : "Rotate Mizuguruma wheel to manage deep RAG operations"}
+
+            <div
+              className="mizuguruma-rack-menu"
+              style={{
+                position: "absolute",
+                left: "400px",
+                bottom: "0px",
+                width: "295px",
+                background: "#fbf8f0",
+                border: "2px solid #5e5041",
+                borderLeft: "6px solid #8c3b30",
+                borderRadius: "4px",
+                padding: "16px",
+                boxShadow: "var(--shadow-dossier)",
+                display: "flex",
+                flexDirection: "column",
+                gap: "10px",
+                pointerEvents: "auto"
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px dashed var(--border-subtle)", paddingBottom: "6px" }}>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "11px", fontWeight: "700", color: "#8c3b30", letterSpacing: "1px" }}>
+                  [ MIZUGURUMA DIAL ]
+                </span>
+                <span style={{ fontFamily: "var(--font-mono)", fontSize: "10px", color: "var(--text-muted)" }}>
+                  {activeWheelIndex + 1} / 6
+                </span>
+              </div>
+
+              <p style={{ fontFamily: "var(--font-serif)", fontSize: "13px", color: "var(--text-secondary)", lineHeight: "1.5", minHeight: "44px", margin: 0 }}>
+                {[
+                  "Clear all records in chat search ledger",
+                  "Open source registry panel to ingest or select documents",
+                  "Inspect current metrics, average latency and gate recommendation",
+                  config.enablePlanner ? "Disable deep multihop contextual planning expert" : "Enable deep multihop contextual planning expert",
+                  "Configure local LLM servers, Groq, Gemini keys & parser depth",
+                  selectedFileIds.size > 0 ? "Clear active file filter constraints (default all)" : "Engage constraint filtering on all indexed materials"
+                ][activeWheelIndex]}
+              </p>
+
+              <button
+                onClick={() => {
+                  const items = [
+                    { action: () => setMessages([]) },
+                    { action: () => setActiveModal("files") },
+                    { action: () => setActiveModal("health") },
+                    {
+                      action: () => {
+                        const nextPlanner = !config.enablePlanner;
+                        setConfig(prev => ({ ...prev, enablePlanner: nextPlanner }));
+                        updateConfig({ ...config, enablePlanner: nextPlanner })
+                          .then(() => alert(`[ROUTING STATUS] Planner ${nextPlanner ? "Activated" : "Deactivated"}`))
+                          .catch(() => {});
+                      }
+                    },
+                    { action: () => setActiveModal("settings") },
+                    {
+                      action: () => {
+                        if (selectedFileIds.size > 0) {
+                          setSelectedFileIds(new Set());
+                        } else {
+                          setSelectedFileIds(new Set(files.filter(f => f.status === "indexed" && f.id).map(f => f.id)));
+                        }
+                      }
+                    }
+                  ];
+                  items[activeWheelIndex].action();
+                  setWheelOpen(false);
+                }}
+                style={{
+                  width: "100%",
+                  padding: "8px",
+                  background: "var(--accent-indigo)",
+                  color: "#ffffff",
+                  border: "none",
+                  borderRadius: "3px",
+                  fontFamily: "var(--font-sans)",
+                  fontWeight: "700",
+                  fontSize: "11px",
+                  cursor: "pointer",
+                  letterSpacing: "0.5px"
+                }}
+              >
+                EXECUTE SELECTION
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showHints && (
+        <div className="hints-scroll-overlay" onClick={() => setShowHints(false)}>
+          <div className="hints-scroll-card" onClick={e => e.stopPropagation()}>
+            <div className="hints-scroll-header">
+              <span className="hints-scroll-title">[ ANCIENT ARCHIVAL USER MAP ]</span>
+              <button className="hints-scroll-close" onClick={() => setShowHints(false)}>×</button>
+            </div>
+            <div className="hints-scroll-body">
+              <div className="hint-item">
+                <span className="hint-icon">⚙</span>
+                <div className="hint-content">
+                  <h4>Mizuguruma Water Wheel</h4>
+                  <p>Located submerged at the bottom left of the garden pond. Click to access archival controls.</p>
+                </div>
+              </div>
+              <div className="hint-item">
+                <span className="hint-icon">⚖</span>
+                <div className="hint-content">
+                  <h4>Search Constraints</h4>
+                  <p>Toggle active files under the <strong>RAG TOGGLE</strong> menu action to index query scope.</p>
+                </div>
+              </div>
+              <div className="hint-item">
+                <span className="hint-icon">✦</span>
+                <div className="hint-content">
+                  <h4>Expert Abstraction</h4>
+                  <p>PolyRAG routes tasks automatically to code, ledger, or image experts depending on query type.</p>
+                </div>
               </div>
             </div>
           </div>
@@ -1068,14 +1817,18 @@ function DbBadge({ label, status }) {
   const up = status === "up";
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: "4px", fontSize: "11px",
-      padding: "3px 8px", borderRadius: "10px",
-      background: up ? "rgba(16,185,129,0.12)" : "rgba(244,63,94,0.12)",
-      border: `1px solid ${up ? "rgba(16,185,129,0.3)" : "rgba(244,63,94,0.3)"}`,
-      color: up ? "var(--accent-emerald)" : "var(--accent-rose)",
-      fontWeight: 500,
+      display: "flex", alignItems: "center", gap: "6px", fontSize: "10px",
+      padding: "4px 8px", borderRadius: "2px",
+      background: "var(--bg-primary)",
+      border: "1px solid rgba(184, 122, 45, 0.15)",
+      borderLeft: `3px solid ${up ? "#5a7d4a" : "#b53e3e"}`,
+      color: "var(--text-primary)",
+      fontFamily: "Georgia, serif",
+      textTransform: "uppercase",
+      letterSpacing: "0.5px",
+      fontWeight: 600,
     }} title={`${label}: ${status}`}>
-      <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: up ? "var(--accent-emerald)" : "var(--accent-rose)", display: "inline-block", flexShrink: 0 }} />
+      <span style={{ fontSize: "8px", color: up ? "#5a7d4a" : "#b53e3e", marginRight: "2px" }}>●</span>
       {label}
     </div>
   );

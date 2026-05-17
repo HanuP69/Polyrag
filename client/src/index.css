@@ -799,97 +799,111 @@ body {
 /* Waterfall Spout & Cascade (MUCH BIGGER) */
 .japanese-water-spout {
   position: fixed;
-  top: 10%;
-  left: 0;
-  width: 110px;
-  height: 30px;
-  z-index: 998;
+  bottom: 85px;
+  left: 64px;
+  width: 60px;
+  height: calc(55vh - 85px);
+  z-index: 2;
   pointer-events: none;
-}
-
-.bamboo-spout-element {
-  width: 90px;
-  height: 18px;
-  background: linear-gradient(135deg, #7c725c, #5e5645);
-  border-radius: 0 8px 8px 0;
-  border-bottom: 3px solid #3c372b;
-  position: relative;
-}
-
-.bamboo-spout-element::after {
-  content: '';
-  position: absolute;
-  right: 5px;
-  top: 3px;
-  width: 6px;
-  height: 8px;
-  border-radius: 50%;
-  background: #a5cde3;
-  opacity: 0.8;
 }
 
 .waterfall-cascade {
   position: absolute;
-  top: 15px;
-  left: 70px;
-  width: 8px;
-  height: calc(40vh - 15px);
-  background: linear-gradient(to bottom, rgba(165, 205, 227, 0.95), rgba(226, 241, 247, 0.4));
-  box-shadow: 0 0 10px rgba(165, 205, 227, 0.7);
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(to bottom, rgba(165, 205, 227, 0.95), rgba(226, 241, 247, 0.75) 75%, rgba(255, 255, 255, 0.9));
+  box-shadow: 0 0 14px rgba(165, 205, 227, 0.85);
   border-radius: 3px;
   overflow: hidden;
 }
 
-.waterfall-cascade div {
-  position: absolute;
-  width: 100%;
-  height: 24px;
-  background: #ffffff;
-  opacity: 0.75;
-  animation: dropCascade 1.6s linear infinite;
+.water-streak-fast {
+  animation: waterfall-flow 0.8s linear infinite;
+}
+.water-streak-fastest {
+  animation: waterfall-flow 0.5s linear infinite;
+}
+.water-streak-slow {
+  animation: waterfall-flow 1.5s linear infinite;
 }
 
-.water-drop-1 { animation-delay: 0s !important; }
-.water-drop-2 { animation-delay: 0.5s !important; }
-.water-drop-3 { animation-delay: 1s !important; }
+.splash-droplet {
+  transform-origin: center;
+  animation: splashRise 1.6s infinite ease-out;
+}
+.droplet-1 { animation-delay: 0s; }
+.droplet-2 { animation-delay: 0.3s; }
+.droplet-3 { animation-delay: 0.6s; }
+.droplet-4 { animation-delay: 0.9s; }
+.droplet-5 { animation-delay: 1.2s; }
 
-@keyframes dropCascade {
-  0% { top: -24px; }
-  100% { top: 100%; }
+@keyframes splashRise {
+  0% { transform: translateY(0) scale(1); opacity: 0.9; }
+  100% { transform: translateY(-40px) scale(0.1); opacity: 0; }
 }
 
-/* Serene Rippling Pond at Bottom Left (MUCH BIGGER) */
+@keyframes waterfall-flow {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: -160; }
+}
+
 .japanese-ripple-pond {
   position: fixed;
   bottom: 0;
   left: 0;
-  width: 220px;
-  height: 160px;
-  background: radial-gradient(circle at 0 100%, rgba(165, 205, 227, 0.15) 0%, rgba(250, 246, 238, 0) 80%);
-  border-top-right-radius: 100%;
-  z-index: 997;
+  right: 0;
+  height: 180px;
+  z-index: 1;
   pointer-events: none;
-  overflow: hidden;
-  border-right: 3px solid rgba(121, 112, 93, 0.15);
 }
 
-.pond-ripple {
+.flowing-water-wave {
+  animation: streamFlow 12s linear infinite;
+}
+@keyframes streamFlow {
+  from { transform: translateX(0%); }
+  to { transform: translateX(-50%); }
+}
+
+.advanced-lily-pad {
   position: absolute;
-  bottom: 5px;
-  left: 5px;
-  border: 1.5px solid rgba(165, 205, 227, 0.55);
-  border-radius: 50%;
-  animation: rippleAnimation 4.5s cubic-bezier(0.1, 0.8, 0.3, 1) infinite;
+  width: 50px;
+  height: 50px;
+  filter: drop-shadow(2px 4px 6px rgba(0,0,0,0.25));
+}
+.advanced-lily-pad svg {
+  width: 100%;
+  height: 100%;
+}
+.pond-ripple-svg {
+  transform-origin: center;
+  animation: svgRipple 6s ease-out infinite;
+}
+.ripple-delay-1 { animation-delay: 0s; }
+.ripple-delay-2 { animation-delay: 1.5s; }
+.ripple-delay-3 { animation-delay: 3s; }
+.ripple-delay-4 { animation-delay: 4.5s; }
+.ripple-delay-5 { animation-delay: 2s; }
+.ripple-delay-6 { animation-delay: 5s; }
+
+.pond-koi-fish {
+  animation: koiDrift 20s ease-in-out infinite alternate;
+}
+.koi-1 { animation-delay: 0s; }
+.koi-2 { animation-delay: -5s; animation-duration: 22s; }
+.koi-3 { animation-delay: -12s; animation-duration: 25s; }
+
+@keyframes koiDrift {
+  0% { margin-left: 0; margin-bottom: 0; }
+  100% { margin-left: 20px; margin-bottom: 10px; }
 }
 
-.ripple-1 { width: 50px; height: 50px; animation-delay: 0s; }
-.ripple-2 { width: 100px; height: 100px; animation-delay: 1.5s; }
-.ripple-3 { width: 150px; height: 150px; animation-delay: 3s; }
-
-@keyframes rippleAnimation {
-  0% { transform: scale(0.2); opacity: 0; }
-  15% { opacity: 0.85; }
-  100% { transform: scale(1.8); opacity: 0; }
+@keyframes svgRipple {
+  0% { transform: scale(0.2); opacity: 0; stroke-width: 2px; }
+  20% { opacity: 0.8; stroke-width: 1.5px; }
+  100% { transform: scale(1.5); opacity: 0; stroke-width: 0.5px; }
 }
 
 /* Traditional Rolled-Out Japanese Scroll Wrapper */
@@ -899,6 +913,7 @@ body {
   display: flex;
   flex-direction: column;
   filter: drop-shadow(0 15px 45px rgba(47, 41, 33, 0.16));
+  z-index: 10;
 }
 
 .scroll-wood-roller {
@@ -940,59 +955,70 @@ body {
   pointer-events: none;
 }
 
-/* Water Wheel Mizuguruma (MUCH BIGGER) */
-.cog-container {
+.leaf-vignette-container {
   position: fixed;
-  top: 50%;
-  left: 0;
-  width: 130px;
-  height: 130px;
-  transform: translate(-50%, -50%);
+  top: 0; left: 0; right: 0; bottom: 0;
+  pointer-events: none;
+  z-index: 10;
+  overflow: hidden;
+}
+
+.leaf-vignette {
+  position: absolute;
+  width: 140px;
+  height: 140px;
+  opacity: 0.85;
+  filter: blur(0.5px);
+}
+
+.leaf-vignette-tl { top: 0; left: 0; }
+.leaf-vignette-tr { top: 0; right: 0; }
+.leaf-vignette-bl { bottom: 0; left: 0; }
+.leaf-vignette-br { bottom: 0; right: 0; }
+
+.japanese-water-wheel {
+  position: fixed;
+  bottom: -20px;
+  left: -112px;
+  width: 225px;
+  height: 225px;
   z-index: 1000;
   cursor: pointer;
-  background: #e6dcc6;
-  border-radius: 50%;
-  border: 4px solid #5e5041;
-  box-shadow: 0 8px 30px rgba(47, 41, 33, 0.25);
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding-right: 14px;
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.cog-container:hover {
-  left: 18px;
-  box-shadow: 0 10px 36px rgba(47, 41, 33, 0.35);
-}
-
-.cog-container.open {
-  left: 24px;
-  border-color: #2c4c5e;
-  background: #faf6ee;
-}
-
-.cog-svg {
-  width: 80px;
-  height: 80px;
-  color: #5e5041;
-  animation: rotateCog 25s linear infinite;
+  transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
   transform-origin: center;
-  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.cog-container.open .cog-svg {
-  animation-play-state: paused;
-  color: #2c4c5e;
-  transform: rotate(45deg);
+.japanese-water-wheel:not(.menu-open) {
+  animation: spin-water-wheel 20s linear infinite;
 }
 
-@keyframes rotateCog {
+@keyframes spin-water-wheel {
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
 
-/* Expanded Weapon Wheel Radial Overlay & Center Display */
+.japanese-stony-mountain {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 140px;
+  height: 55vh;
+  z-index: 2;
+  pointer-events: none;
+  filter: drop-shadow(4px 0 10px rgba(0, 0, 0, 0.3));
+}
+
+.japanese-garden-stones {
+  position: fixed;
+  bottom: 12px;
+  left: 100px;
+  width: 90px;
+  height: 50px;
+  z-index: 2;
+  pointer-events: none;
+  filter: drop-shadow(0 4px 6px rgba(0,0,0,0.12));
+}
+
 .weapon-wheel-overlay {
   position: fixed;
   top: 0;
@@ -1008,95 +1034,105 @@ body {
   animation: overlayFade 0.25s ease-out;
 }
 
-@keyframes overlayFade {
-  from { opacity: 0; }
-  to { opacity: 1; }
+.mizuguruma-rack-menu {
+  background: #fbf8f0 !important;
+  border: 2px solid #5e5041 !important;
+  border-left: 6px solid #8c3b30 !important;
+  box-shadow: 0 15px 40px rgba(47, 41, 33, 0.25) !important;
 }
 
-.weapon-wheel-menu {
-  position: absolute;
-  left: -50px;
-  top: 50%;
-  transform: translateY(-50%);
+@keyframes rackSlideIn {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.hints-scroll-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(30, 27, 23, 0.25);
+  backdrop-filter: blur(2.5px);
+  z-index: 1010;
   display: flex;
+  justify-content: center;
   align-items: center;
-  animation: wheelSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: overlayFade 0.25s ease-out;
 }
 
-@keyframes wheelSlideIn {
-  from { opacity: 0; transform: translateY(-50%) translateX(-40px); }
-  to { opacity: 1; transform: translateY(-50%) translateX(0); }
-}
-
-.weapon-wheel-svg {
-  width: 100%;
-  height: 100%;
-  filter: drop-shadow(0 12px 36px rgba(47, 41, 33, 0.16));
-}
-
-.weapon-wheel-sector {
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.weapon-wheel-path {
-  fill: #fdfbf7;
-  stroke: #dcd4c0;
-  stroke-width: 1.5px;
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.weapon-wheel-sector:hover .weapon-wheel-path {
-  fill: #2c4c5e;
-  stroke: #79705d;
-}
-
-.weapon-wheel-text {
-  font-family: var(--font-mono);
-  fill: var(--text-secondary);
-  text-anchor: middle;
-  dominant-baseline: middle;
-  pointer-events: none;
-  transition: fill 0.2s ease;
-}
-
-.weapon-wheel-sector:hover .weapon-wheel-text {
-  fill: #ffffff;
-}
-
-.weapon-wheel-center-display {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 270px;
-  background: var(--bg-card);
-  border: 1px solid #79705d;
-  border-left: 4px solid #2c4c5e;
+.hints-scroll-card {
+  background: #fbf8f0;
+  border: 2px solid #79705d;
+  border-left: 12px solid #8c3b30;
+  border-right: 12px solid #8c3b30;
+  padding: 24px;
+  width: 500px;
+  max-width: 90vw;
+  box-shadow: 0 16px 48px rgba(47, 41, 33, 0.2);
   border-radius: var(--radius-sm);
-  padding: 16px 20px;
-  box-shadow: var(--shadow-dossier);
   animation: displaySlide 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-@keyframes displaySlide {
-  from { opacity: 0; transform: translateY(-50%) translateX(-10px); }
-  to { opacity: 1; transform: translateY(-50%) translateX(0); }
+.hints-scroll-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px dashed var(--border-subtle);
+  padding-bottom: 8px;
+  margin-bottom: 16px;
 }
 
-.weapon-wheel-center-label {
+.hints-scroll-title {
   font-family: var(--font-mono);
-  font-size: 11px;
   font-weight: 700;
-  color: var(--text-muted);
+  font-size: 13px;
+  color: var(--accent-rose);
   letter-spacing: 1.5px;
-  margin-bottom: 6px;
 }
 
-.weapon-wheel-center-desc {
-  font-family: var(--font-serif);
-  font-size: 13px;
-  line-height: 1.6;
+.hints-scroll-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+}
+
+.hints-scroll-close:hover {
+  color: var(--accent-rose);
+}
+
+.hints-scroll-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.hint-item {
+  display: flex;
+  gap: 12px;
+}
+
+.hint-icon {
+  font-size: 18px;
+  color: var(--accent-amber);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.hint-content h4 {
+  font-family: var(--font-mono);
+  font-size: 12px;
   color: var(--text-primary);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.hint-content p {
+  font-family: var(--font-serif);
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
 }
 
 /* Modern Floating Archival Modal Cards */
@@ -1188,4 +1224,20 @@ body {
   height: 42px;
   font-size: 12px;
   padding: 0 22px;
+}
+
+/* Wiggling foot/limb animations for climbing pandas */
+@keyframes limbWiggleLeft {
+  0% { transform: rotate(-10deg); }
+  100% { transform: rotate(10deg); }
+}
+@keyframes limbWiggleRight {
+  0% { transform: rotate(10deg); }
+  100% { transform: rotate(-10deg); }
+}
+.panda-limb-left.wiggling {
+  animation: limbWiggleLeft 0.12s infinite alternate ease-in-out !important;
+}
+.panda-limb-right.wiggling {
+  animation: limbWiggleRight 0.12s infinite alternate ease-in-out !important;
 }
