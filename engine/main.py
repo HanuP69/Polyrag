@@ -1410,12 +1410,13 @@ class BM25Request(BaseModel):
     expert_id: str
     org_id: str = "default"
     top_k: int = 5
+    file_ids: Optional[list[str]] = None
 
 @app.post("/retrieve/bm25")
 async def retrieve_bm25(req: BM25Request):
     try:
         from engine.db import search_bm25
-        chunks = search_bm25(req.query, req.org_id, req.expert_id, req.top_k)
+        chunks = search_bm25(req.query, req.org_id, req.expert_id, req.top_k, file_ids=req.file_ids)
         return {
             "chunks": [
                 {

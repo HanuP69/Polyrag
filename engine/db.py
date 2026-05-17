@@ -553,25 +553,34 @@ def search_bm25(
     query: str,
     org_id: str,
     expert_id: str,
-    top_k: int = 5
+    top_k: int = 5,
+    file_ids: list = None
 ) -> list[Chunk]:
     conn = get_conn()
     if TESTING:
-        return _search_bm25_sqlite(conn, query, org_id, expert_id, top_k)
+        return _search_bm25_sqlite(conn, query, org_id, expert_id, top_k, file_ids=file_ids)
     else:
-        return _search_bm25_pg(conn, query, org_id, expert_id, top_k)
+        return _search_bm25_pg(conn, query, org_id, expert_id, top_k, file_ids=file_ids)
 
 
-def _search_bm25_sqlite(conn, query, org_id, expert_id, top_k):
+def _search_bm25_sqlite(conn, query, org_id, expert_id, top_k, file_ids=None):
     keywords = query.lower().split()
     if not keywords:
         return []
 
-    rows = conn.execute(
-        """SELECT chunk_id, org_id, file_id, expert_id, content, metadata
-           FROM chunks WHERE org_id = ? AND expert_id = ?""",
-        (org_id, expert_id)
-    ).fetchall()
+    if file_ids:
+        placeholders = ",".join("?" * len(file_ids))
+        rows = conn.execute(
+            f"""SELECT chunk_id, org_id, file_id, expert_id, content, metadata
+               FROM chunks WHERE org_id = ? AND expert_id = ? AND file_id IN ({placeholders})""",
+            (org_id, expert_id, *file_ids)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT chunk_id, org_id, file_id, expert_id, content, metadata
+               FROM chunks WHERE org_id = ? AND expert_id = ?""",
+            (org_id, expert_id)
+        ).fetchall()
     if not rows:
         return []
 
@@ -622,18 +631,30 @@ def _tfidf_scores(keywords: list[str], docs: list[str]) -> list[float]:
     return scores
 
 
-def _search_bm25_pg(conn, query, org_id, expert_id, top_k):
+def _search_bm25_pg(conn, query, org_id, expert_id, top_k, file_ids=None):
     cur = conn.cursor()
-    cur.execute(
-        """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
-                  ts_rank(tsv, plainto_tsquery('english', %s)) as rank
-           FROM chunks
-           WHERE org_id = %s AND expert_id = %s
-             AND tsv @@ plainto_tsquery('english', %s)
-           ORDER BY rank DESC
-           LIMIT %s""",
-        (query, org_id, expert_id, query, top_k)
-    )
+    if file_ids:
+        cur.execute(
+            """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
+                      ts_rank(tsv, plainto_tsquery('english', %s)) as rank
+               FROM chunks
+               WHERE org_id = %s AND expert_id = %s AND file_id = ANY(%s)
+                 AND tsv @@ plainto_tsquery('english', %s)
+               ORDER BY rank DESC
+               LIMIT %s""",
+            (query, org_id, expert_id, file_ids, query, top_k)
+        )
+    else:
+        cur.execute(
+            """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
+                      ts_rank(tsv, plainto_tsquery('english', %s)) as rank
+               FROM chunks
+               WHERE org_id = %s AND expert_id = %s
+                 AND tsv @@ plainto_tsquery('english', %s)
+               ORDER BY rank DESC
+               LIMIT %s""",
+            (query, org_id, expert_id, query, top_k)
+        )
     rows = cur.fetchall()
     results = []
     for row in rows:

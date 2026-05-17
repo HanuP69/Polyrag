@@ -26,9 +26,18 @@ router.post("/api/query", async (req, res) => {
 
     let finalQuery = query;
 
-    const activeExperts = Object.entries(gateWeights).filter(
+    let activeExperts = Object.entries(gateWeights).filter(
       ([, w]) => w > GATE_THRESHOLD
     );
+
+    // Phase 3: Gate confidence cascade fallback
+    const maxWeight = Math.max(...Object.values(gateWeights));
+    if (activeExperts.length === 0 || maxWeight < GATE_THRESHOLD) {
+      console.log(`[Gate] Weak routing confidence (max weight: ${maxWeight.toFixed(3)}). Cascading to generalist fallback (Text + Code experts).`);
+      activeExperts = [["text", 0.4], ["code", 0.4]];
+      gateWeights["text"] = 0.4;
+      gateWeights["code"] = 0.4;
+    }
 
     const retrievalPromises = [];
     const resultKeys = [];
@@ -43,7 +52,7 @@ router.post("/api/query", async (req, res) => {
       resultKeys.push(expertId);
 
       retrievalPromises.push(
-        engine.retrieveBM25(finalQuery, expertId, org_id, 5).catch((err) => {
+        engine.retrieveBM25(finalQuery, expertId, org_id, 5, file_ids).catch((err) => {
           console.error(`[Query] BM25 retrieve ${expertId} failed:`, err.message);
           return { chunks: [], total: 0 };
         })
@@ -131,7 +140,6 @@ router.post("/api/query", async (req, res) => {
     );
 
     let fullAnswer = "";
-    let earlyGuardPromise = null;
     try {
       const streamResp = await engine.streamGenerate(
         buildPrompt(finalQuery, reranked, system_prompt),
@@ -150,13 +158,6 @@ router.post("/api/query", async (req, res) => {
                 if (event.type === "token") {
                   fullAnswer += event.content;
                   res.write(`data: ${JSON.stringify({ type: "token", content: event.content })}\n\n`);
-
-                  if (fullAnswer.length > 500 && !earlyGuardPromise) {
-                    earlyGuardPromise = engine.guard(
-                      fullAnswer,
-                      sources.map((s) => s.content)
-                    ).catch(() => null);
-                  }
                 }
               } catch {}
             }
@@ -172,16 +173,10 @@ router.post("/api/query", async (req, res) => {
 
     let guardResult = null;
     try {
-      const fullGuardPromise = engine.guard(
+      guardResult = await engine.guard(
         fullAnswer,
         sources.map((s) => s.content)
       ).catch(() => null);
-
-      if (earlyGuardPromise) {
-        guardResult = await Promise.race([earlyGuardPromise, fullGuardPromise]);
-      } else {
-        guardResult = await fullGuardPromise;
-      }
     } catch (err) {
       console.error("[Query] Guard failed:", err.message);
     }
@@ -259,10 +254,14 @@ router.post("/api/query/sync", async (req, res) => {
 function buildPrompt(query, chunks, systemPrompt) {
   const sys =
     systemPrompt ||
-    "You are a document (or codebase given the content) Q&A assistant. You MUST answer ONLY using the provided sources below. " +
-    "Do NOT use your own knowledge. Every claim you make must come from the sources. " +
-    "Cite sources using [Source N] notation. If the sources don't answer the question, say: " +
-    "'The uploaded documents do not contain information about this topic.'";
+    "You are an elite document and codebase Q&A assistant. You MUST answer ONLY using the provided sources below. " +
+    "Every claim you make must come from the sources and be direct and grounded.\n\n" +
+    "FORMATTING REQUIREMENTS:\n" +
+    "1. Structure your answer beautifully using clean Markdown headers (##, ###).\n" +
+    "2. Present key points, facts, or instructions in clear bulleted lists or numbered lists.\n" +
+    "3. Wrap all code snippets in complete, syntax-highlighted markdown code blocks (e.g. ```python, ```javascript).\n" +
+    "4. Cite sources using [Source N] notation (e.g. [Source 1]).\n" +
+    "5. Avoid conversational filler or salutations (e.g. do not say 'Sure, here is...' or 'Hope this helps!'). Be direct, precise, and highly informative.";
 
   let context = "";
   (chunks || []).forEach((chunk, i) => {

@@ -12,15 +12,75 @@ def _get_nli():
         _nli_model = CrossEncoder(NLI_MODEL, max_length=512, device="cpu")
         print("[Guard] [OK] NLI model loaded")
     return _nli_model
-
+import re
 
 def _extract_claims(answer: str) -> list[str]:
-    sentences = answer.replace("?\n", "? ").replace(".\n", ". ").split(". ")
+    # Parse code blocks to ignore their contents from factual claim verification
+    lines = answer.split("\n")
+    cleaned_lines = []
+    in_code_block = False
+    
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
+            continue
+        if in_code_block:
+            continue
+        cleaned_lines.append(line)
+        
+    text_outside_code = ". ".join(cleaned_lines)
+    
+    # Split into sentences using regex respecting punctuation
+    raw_sentences = re.split(r'(?<=[.!?])\s+', text_outside_code)
+    
     claims = []
-    for s in sentences:
-        s = s.strip().rstrip(".")
-        if len(s) > 20 and not s.startswith("[") and not s.startswith("Source"):
-            claims.append(s)
+    
+    # Common conversational and boilerplate phrase patterns
+    boilerplate_patterns = [
+        r"^\s*sure",
+        r"here\s+(?:is|are)",
+        r"let\s+me\s+know",
+        r"hope\s+this\s+helps",
+        r"based\s+on\s+my",
+        r"according\s+to\s+the",
+        r"you\s+asked",
+        r"i\s+found",
+        r"as\s+requested",
+        r"feel\s+free",
+        r"is\s+there\s+anything",
+        r"thank\s+you",
+        r"hello",
+        r"greetings",
+        r"welcome",
+        r"let's\s+(?:explore|look|dive|start)",
+        r"below\s+(?:is|are)",
+        r"following\s+(?:is|are|code)",
+        r"i\s+can\s+help",
+        r"i\s+will\s+explain",
+        r"here's\s+a",
+    ]
+    
+    compiled_patterns = [re.compile(p, re.IGNORECASE) for p in boilerplate_patterns]
+    
+    for s in raw_sentences:
+        s = s.strip().rstrip(".").rstrip()
+        if len(s) < 25:
+            continue
+        # Skip pure list markers, markdown headers, and bracket tags
+        if s.startswith("- ") or s.startswith("* ") or s.startswith("#") or s.startswith("[") or s.startswith("Source"):
+            continue
+        # Skip conversational boilerplate
+        is_boilerplate = False
+        for pattern in compiled_patterns:
+            if pattern.search(s):
+                is_boilerplate = True
+                break
+        if is_boilerplate:
+            continue
+            
+        claims.append(s)
+        
     return claims
 
 
@@ -32,9 +92,11 @@ def verify_answer(answer: str, sources: list[str]) -> dict:
     claims = _extract_claims(answer)
 
     if not claims:
+        # If no actual factual claims were made (e.g. conversational prompt), treat as verified
         return {"verified": True, "claims": [], "score": 1.0}
 
-    source_text = " ".join(s[:500] for s in sources[:5])
+    # Extend context window to 1500 chars to cover full relevance
+    source_text = " ".join(s[:1500] for s in sources[:5])
     claims = claims[:10]
 
     pairs = [(claim, source_text) for claim in claims]
@@ -45,13 +107,16 @@ def verify_answer(answer: str, sources: list[str]) -> dict:
         scores = all_scores[i] if all_scores.ndim > 1 else all_scores
 
         if isinstance(scores, np.ndarray) and scores.ndim > 0 and len(scores) > 1:
-            entailment = float(scores[1])
-            contradiction = float(scores[0])
+            # Apply stable softmax to convert raw logits to probabilities
+            exp_scores = np.exp(scores - np.max(scores))
+            probs = exp_scores / np.sum(exp_scores)
+            entailment = float(probs[1])
+            contradiction = float(probs[0])
         else:
             entailment = float(scores) if float(scores) > 0 else 0.5
             contradiction = 0.0
 
-        # Loosened guardrail threshold as requested
+        # Loosened guardrail threshold
         grounded = entailment > 0.3 and contradiction < 0.7
 
         results.append({
@@ -64,10 +129,13 @@ def verify_answer(answer: str, sources: list[str]) -> dict:
     total = len(results)
     avg_score = sum(r["confidence"] for r in results) / total if total > 0 else 0.0
 
-    print(f"[Guard] {verified_count}/{total} claims verified (avg confidence: {avg_score:.3f})")
+    # Verification threshold: 85% of claims must be grounded to verify the whole response
+    is_verified = (verified_count / total) >= 0.85 if total > 0 else True
+
+    print(f"[Guard] {verified_count}/{total} claims verified (avg confidence: {avg_score:.3f}, verified: {is_verified})")
 
     return {
-        "verified": verified_count == total,
+        "verified": is_verified,
         "claims": results,
         "score": round(avg_score, 3),
         "verified_count": verified_count,

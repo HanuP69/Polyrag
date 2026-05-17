@@ -6,6 +6,184 @@ import {
   updateConfig, getFiles, deleteFile, getDbHealth,
 } from "./api";
 
+const MarkdownRenderer = ({ content }) => {
+  if (!content) return null;
+
+  // Split by "```" to handle code blocks elegantly
+  const parts = content.split("```");
+  return (
+    <div className="markdown-content">
+      {parts.map((part, index) => {
+        const isCode = index % 2 === 1;
+
+        if (isCode) {
+          const lines = part.split("\n");
+          let language = "text";
+          let codeLines = lines;
+          if (lines[0] && !lines[0].includes(" ") && lines[0].length < 15) {
+            language = lines[0].toLowerCase();
+            codeLines = lines.slice(1);
+          }
+          const codeText = codeLines.join("\n");
+
+          return (
+            <div key={index} className="code-block-container" style={{ margin: "12px 0" }}>
+              <div className="code-block-header" style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "6px 12px",
+                background: "var(--bg-card)",
+                borderBottom: "1px solid var(--border)",
+                fontSize: "11px",
+                fontFamily: "monospace",
+                color: "var(--text-muted)",
+                borderTopLeftRadius: "6px",
+                borderTopRightRadius: "6px"
+              }}>
+                <span>{language.toUpperCase()}</span>
+                <button
+                  className="copy-btn"
+                  onClick={() => {
+                    navigator.clipboard.writeText(codeText);
+                  }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--accent-emerald)",
+                    cursor: "pointer",
+                    fontSize: "11px",
+                    fontWeight: "bold"
+                  }}
+                >
+                  Copy
+                </button>
+              </div>
+              <pre className="code-block" style={{
+                margin: 0,
+                padding: "12px",
+                background: "#19191e",
+                color: "#e3e3e6",
+                overflowX: "auto",
+                borderBottomLeftRadius: "6px",
+                borderBottomRightRadius: "6px",
+                fontFamily: "var(--font-mono)",
+                fontSize: "13px",
+                lineHeight: "1.5"
+              }}>
+                <code>{codeText}</code>
+              </pre>
+            </div>
+          );
+        }
+
+        // Regular Text
+        const lines = part.split("\n");
+        let listItems = [];
+        let insideList = false;
+        const renderedLines = [];
+
+        const renderInline = (text) => {
+          let segments = [text];
+          // bold
+          let newSegments = [];
+          for (let seg of segments) {
+            if (typeof seg === "string") {
+              const subSegs = seg.split(/(\*\*.*?\*\*)/g);
+              newSegments.push(...subSegs.map((sub, i) => {
+                if (sub.startsWith("**") && sub.endsWith("**")) {
+                  return <strong key={i}>{sub.slice(2, -2)}</strong>;
+                }
+                return sub;
+              }));
+            } else {
+              newSegments.push(seg);
+            }
+          }
+          segments = newSegments;
+
+          // inline code
+          newSegments = [];
+          for (let seg of segments) {
+            if (typeof seg === "string") {
+              const subSegs = seg.split(/(\`.*?\`)/g);
+              newSegments.push(...subSegs.map((sub, i) => {
+                if (sub.startsWith("`") && sub.endsWith("`")) {
+                  return <code key={i} className="inline-code" style={{
+                    background: "var(--bg-body)",
+                    padding: "2px 6px",
+                    borderRadius: "4px",
+                    fontFamily: "var(--font-mono)",
+                    fontSize: "0.9em",
+                    border: "1px solid var(--border)"
+                  }}>{sub.slice(1, -1)}</code>;
+                }
+                return sub;
+              }));
+            } else {
+              newSegments.push(seg);
+            }
+          }
+          segments = newSegments;
+
+          return segments;
+        };
+
+        const flushList = (key) => {
+          if (listItems.length > 0) {
+            renderedLines.push(
+              <ul key={`ul-${key}`} className="markdown-list" style={{ paddingLeft: "20px", margin: "8px 0" }}>
+                {listItems.map((item, idx) => (
+                  <li key={idx} style={{ margin: "4px 0" }}>{renderInline(item)}</li>
+                ))}
+              </ul>
+            );
+            listItems = [];
+            insideList = false;
+          }
+        };
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          const trimmed = line.trim();
+
+          if (trimmed.startsWith("# ")) {
+            flushList(i);
+            renderedLines.push(<h1 key={i} style={{ margin: "16px 0 8px 0", fontSize: "1.8em", fontWeight: "bold" }}>{renderInline(trimmed.slice(2))}</h1>);
+          } else if (trimmed.startsWith("## ")) {
+            flushList(i);
+            renderedLines.push(<h2 key={i} style={{ margin: "14px 0 6px 0", fontSize: "1.4em", fontWeight: "bold" }}>{renderInline(trimmed.slice(3))}</h2>);
+          } else if (trimmed.startsWith("### ")) {
+            flushList(i);
+            renderedLines.push(<h3 key={i} style={{ margin: "12px 0 4px 0", fontSize: "1.2em", fontWeight: "bold" }}>{renderInline(trimmed.slice(4))}</h3>);
+          } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+            insideList = true;
+            listItems.push(trimmed.slice(2));
+          } else if (/^\d+\.\s/.test(trimmed)) {
+            flushList(i);
+            const content = trimmed.replace(/^\d+\.\s/, "");
+            const num = trimmed.match(/^\d+/)?.[0] || "1";
+            renderedLines.push(<div key={i} className="list-item-numbered" style={{ margin: "6px 0", display: "flex", gap: "8px" }}>
+              <span style={{ fontWeight: "bold", color: "var(--accent-emerald)" }}>{num}.</span>
+              <div>{renderInline(content)}</div>
+            </div>);
+          } else if (trimmed === "") {
+            flushList(i);
+          } else {
+            if (insideList) {
+              flushList(i);
+            }
+            renderedLines.push(<p key={i} style={{ margin: "8px 0", lineHeight: "1.6" }}>{renderInline(line)}</p>);
+          }
+        }
+        flushList(lines.length);
+
+        return <div key={index}>{renderedLines}</div>;
+      })}
+    </div>
+  );
+};
+
 function MainApp({ session }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
@@ -528,7 +706,7 @@ function MainApp({ session }) {
                   <div className="rewrite-notice">✨ Query rewritten: "{msg.meta.rewritten_query}"</div>
                 )}
                 <div className="message-bubble">
-                  {msg.content}
+                  <MarkdownRenderer content={msg.content} />
                   {msg.streaming && (
                     <span className="typing-indicator">
                       <span className="typing-dot"></span>

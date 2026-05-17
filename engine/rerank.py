@@ -10,7 +10,7 @@ def get_reranker():
     global _reranker
     if _reranker is None:
         print(f"[Rerank] Loading cross-encoder: {RERANKER_MODEL}")
-        _reranker = CrossEncoder(RERANKER_MODEL, max_length=512)
+        _reranker = CrossEncoder(RERANKER_MODEL, max_length=512, device="cpu")
         print("[Rerank] [OK] Reranker loaded")
     return _reranker
 
