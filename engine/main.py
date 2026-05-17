@@ -24,7 +24,7 @@ from config import (
     GROQ_API_KEY, GROQ_MODEL,
     GEMINI_API_KEY, GEMINI_BASE_URL,
     DEFAULT_TOP_K, GATE_THRESHOLD,
-    UPLOAD_DIR, EXPERT_IDS, EMBEDDING_MODEL
+    UPLOAD_DIR, EXPERT_IDS, EMBEDDING_MODEL, MODEL_REGISTRY
 )
 from experts.base import Chunk
 from fuse import rrf_fuse
