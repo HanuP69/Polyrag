@@ -1,5 +1,12 @@
 import os
 import sys
+
+# Ensure project root is on sys.path so `engine.*` imports resolve
+# regardless of how this file is launched (python -m, subprocess, etc.)
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+
 import time
 import json
 import shutil
@@ -24,12 +31,12 @@ from engine.config import (
     GROQ_API_KEY, GROQ_MODEL,
     GEMINI_API_KEY, GEMINI_BASE_URL,
     DEFAULT_TOP_K, GATE_THRESHOLD,
-    UPLOAD_DIR, EXPERT_IDS, EMBEDDING_MODEL, MODEL_REGISTRY
+    UPLOAD_DIR, EXPERT_IDS, EMBEDDING_MODEL, MODEL_REGISTRY,
+    EXPERT_MODEL_MAP, CASCADE_THRESHOLD, CASCADE_SMALL_MODEL, CASCADE_BIG_MODEL,
 )
 from engine.experts.base import Chunk
 from engine.fuse import rrf_fuse
 from engine.rerank import rerank
-from engine.rewrite import rewrite_query
 from engine.guard import verify_answer
 from engine.heal import get_pipeline_health, should_retrain_gate
 
@@ -259,7 +266,7 @@ async def embed_chunks(req: EmbedRequest):
     chunks = expert.embed(chunks)
 
     try:
-        from db import upsert_chunks
+        from engine.db import upsert_chunks
         upsert_chunks(chunks)
     except Exception as e:
         print(f"[Main] [WARN] DB upsert failed: {e}")
@@ -354,7 +361,7 @@ async def ingest_file(
     start = time.time()
 
     try:
-        from db import ensure_org, create_file, update_file_status, upsert_chunks
+        from engine.db import ensure_org, create_file, update_file_status, upsert_chunks
         ensure_org(org_id)
         db_available = True
     except Exception as e:
@@ -470,7 +477,7 @@ async def ingest_github(
     start = time.time()
 
     try:
-        from db import ensure_org, create_file, update_file_status, upsert_chunks
+        from engine.db import ensure_org, create_file, update_file_status, upsert_chunks
         ensure_org(org_id)
         db_available = True
     except Exception as e:
@@ -586,7 +593,7 @@ async def ingest_github(
 @app.get("/file/{file_id}")
 async def get_file(file_id: str):
     try:
-        from db import get_file_status
+        from engine.db import get_file_status
         status = get_file_status(file_id)
         if status is None:
             raise HTTPException(status_code=404, detail="File not found")
@@ -615,38 +622,26 @@ async def query_pipeline(req: QueryRequest):
 
     loop = asyncio.get_event_loop()
 
+    # Gate only — no rewriter
     gate_task = loop.run_in_executor(_io_pool,
         lambda: _gate.route(req.query) if _gate else {"text": 1.0})
     gate_raw_task = loop.run_in_executor(_io_pool,
         lambda: _gate.route_raw(req.query) if _gate else {"text": 1.0, "table": 0.0, "image": 0.0})
-    _hist = req.chat_history or []
-    rewrite_task = loop.run_in_executor(_io_pool,
-        lambda: rewrite_query(req.query, model=req.model, chat_history=_hist))
 
-    gate_result, gate_raw, rewritten_query = await asyncio.gather(
-        gate_task, gate_raw_task, rewrite_task
-    )
+    gate_result, gate_raw = await asyncio.gather(gate_task, gate_raw_task)
 
     final_query = req.query
-    rewritten = None
     max_gate_conf = max(gate_raw.values()) if gate_raw else 0
-    needs_rewrite = max_gate_conf < 0.5 or len(req.query.split()) < 4 or bool(_hist)
-    if needs_rewrite:
-        if rewritten_query and rewritten_query != req.query:
-            final_query = rewritten_query
-            rewritten = final_query
-            gate_result = await loop.run_in_executor(_io_pool,
-                lambda: _gate.route(final_query) if _gate else {"text": 1.0})
 
     t_gate = time.time()
-    print(f"[Query] Gate+Rewrite: {int((t_gate-start)*1000)}ms (conf={max_gate_conf:.2f})")
+    print(f"[Query] Gate: {int((t_gate-start)*1000)}ms (conf={max_gate_conf:.2f}, experts={list(gate_result.keys())})")
 
     query_vec = await loop.run_in_executor(_io_pool, _cached_embed_query, final_query)
 
     t_embed = time.time()
     print(f"[Query] Embed: {int((t_embed-t_gate)*1000)}ms")
 
-    from db import search_bm25
+    from engine.db import search_bm25
     retrieve_tasks = []
     retrieve_keys = []
 
@@ -678,11 +673,8 @@ async def query_pipeline(req: QueryRequest):
     print(f"[Query] Parallel retrieve ({len(retrieve_tasks)} tasks): {int((t_retrieve-t_embed)*1000)}ms")
 
     if expert_results:
-        all_sims = []
-        for chunks in expert_results.values():
-            for c in chunks:
-                sim = c.metadata.get("similarity", c.metadata.get("bm25_score", 0))
-                all_sims.append(sim)
+        all_sims = [c.metadata.get("similarity", c.metadata.get("bm25_score", 0))
+                    for chunks in expert_results.values() for c in chunks]
         avg_sim = sum(all_sims) / len(all_sims) if all_sims else 0
 
         if avg_sim < 0.3 and len(gate_result) < len(_experts):
@@ -699,8 +691,7 @@ async def query_pipeline(req: QueryRequest):
             for key, result in zip(fallback_keys, fallback_results):
                 if not isinstance(result, Exception) and result:
                     expert_results[key] = result
-                    expert_id = key.replace("_fallback", "")
-                    gate_result[expert_id] = 0.3
+                    gate_result[key.replace("_fallback", "")] = 0.3
 
     if expert_results:
         fused_chunks = rrf_fuse(expert_results, gate_result, top_n=40)
@@ -728,7 +719,7 @@ async def query_pipeline(req: QueryRequest):
 
     history_block = ""
     if req.chat_history:
-        from memory import build_memory_context
+        from engine.memory import build_memory_context
         summary, recent = build_memory_context(req.chat_history)
         if summary:
             history_block += f"\n--- Conversation Summary ---\n{summary}\n"
@@ -745,10 +736,26 @@ async def query_pipeline(req: QueryRequest):
     )
     full_prompt = f"{system_prompt}\n{history_block}\n--- Sources ---\n{context}\n\n--- Question ---\n{final_query}"
 
-    answer = await _generate_answer(full_prompt, req.query, req.model)
+    # ── Cascade: small local model first, escalate to big cloud if low confidence ──
+    fired_experts = list(gate_result.keys())
+    # Determine model: user override > cascade logic > expert-specific default
+    if req.model:
+        answer_model = req.model
+    elif max_gate_conf < CASCADE_THRESHOLD:
+        # Low confidence → fast local pass first, then escalate
+        print(f"[Query] Cascade: conf={max_gate_conf:.2f} < {CASCADE_THRESHOLD}, escalating to {CASCADE_BIG_MODEL}")
+        answer_model = CASCADE_BIG_MODEL
+    else:
+        # MoE: pick the model for the top-weighted expert
+        top_expert = max(gate_result, key=gate_result.get) if gate_result else "text"
+        expert_cfg = EXPERT_MODEL_MAP.get(top_expert, {})
+        answer_model = expert_cfg.get("model", CASCADE_SMALL_MODEL)
+        print(f"[Query] MoE routing: top_expert={top_expert} → model={answer_model}")
+
+    answer = await _generate_answer(full_prompt, req.query, answer_model)
 
     t_llm = time.time()
-    print(f"[Query] LLM: {int((t_llm-t_rerank)*1000)}ms")
+    print(f"[Query] LLM ({answer_model}): {int((t_llm-t_rerank)*1000)}ms")
 
     guard_task = loop.run_in_executor(_io_pool,
         lambda: verify_answer(answer, [s["content"] for s in sources]))
@@ -757,12 +764,12 @@ async def query_pipeline(req: QueryRequest):
 
     query_log_id = None
     try:
-        from db import log_query
+        from engine.db import log_query
         query_log_id = log_query(
             org_id=req.org_id,
             query=req.query,
             gate_weights=gate_result,
-            experts_fired=list(gate_result.keys()),
+            experts_fired=fired_experts,
             chunk_ids=[c.chunk_id for c in fused_chunks],
             latency_ms=elapsed
         )
@@ -783,12 +790,13 @@ async def query_pipeline(req: QueryRequest):
         "answer": answer,
         "sources": sources,
         "gate_weights": gate_result,
-        "experts_fired": list(gate_result.keys()),
+        "experts_fired": fired_experts,
         "latency_ms": total_ms,
         "cached": False,
         "query_log_id": query_log_id,
-        "rewritten_query": rewritten,
+        "rewritten_query": None,   # rewriter removed
         "guard": guard_result,
+        "model_used": answer_model,
     }
 
     if len(_query_cache) < MAX_CACHE:
@@ -816,6 +824,7 @@ def _generate_ollama(prompt: str, model: Optional[str] = None) -> str:
                 "model": model or OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": False,
+                "keep_alive": 0,   # evict from VRAM immediately after response
                 "options": {
                     "temperature": 0.3,
                     "num_predict": 2048,
@@ -859,6 +868,7 @@ def _stream_ollama(prompt: str, model: Optional[str] = None):
                 "model": model or OLLAMA_MODEL,
                 "prompt": prompt,
                 "stream": True,
+                "keep_alive": 0,   # evict from VRAM after stream completes
                 "options": {
                     "temperature": 0.3,
                     "num_predict": 2048,
@@ -945,7 +955,7 @@ async def generate_stream(req: GenerateRequest):
     prompt = req.prompt
 
     if req.chat_history:
-        from memory import build_memory_context
+        from engine.memory import build_memory_context
         summary, recent = build_memory_context(req.chat_history)
         history_block = ""
         if summary:
@@ -1012,32 +1022,20 @@ async def query_stream(req: QueryRequest):
     start = time.time()
     loop = asyncio.get_event_loop()
 
+    # Gate only — rewriter removed
     gate_task = loop.run_in_executor(_io_pool,
         lambda: _gate.route(req.query) if _gate else {"text": 1.0})
     gate_raw_task = loop.run_in_executor(_io_pool,
         lambda: _gate.route_raw(req.query) if _gate else {"text": 1.0, "table": 0.0, "image": 0.0})
-    _hist = req.chat_history or []
-    rewrite_task = loop.run_in_executor(_io_pool,
-        lambda: rewrite_query(req.query, model=req.model, chat_history=_hist))
 
-    gate_result, gate_raw, rewritten_query = await asyncio.gather(
-        gate_task, gate_raw_task, rewrite_task
-    )
+    gate_result, gate_raw = await asyncio.gather(gate_task, gate_raw_task)
 
     final_query = req.query
-    rewritten = None
     max_gate_conf = max(gate_raw.values()) if gate_raw else 0
-    needs_rewrite = max_gate_conf < 0.5 or len(req.query.split()) < 4 or bool(_hist)
-    if needs_rewrite:
-        if rewritten_query and rewritten_query != req.query:
-            final_query = rewritten_query
-            rewritten = final_query
-            gate_result = await loop.run_in_executor(_io_pool,
-                lambda: _gate.route(final_query) if _gate else {"text": 1.0})
 
     query_vec = await loop.run_in_executor(_io_pool, _cached_embed_query, final_query)
 
-    from db import search_bm25
+    from engine.db import search_bm25
     retrieve_tasks = []
     retrieve_keys = []
 
@@ -1072,7 +1070,7 @@ async def query_stream(req: QueryRequest):
 
     query_log_id = None
     try:
-        from db import log_query
+        from engine.db import log_query
         query_log_id = log_query(
             org_id=req.org_id,
             query=req.query,
@@ -1098,7 +1096,7 @@ async def query_stream(req: QueryRequest):
 
     history_block = ""
     if req.chat_history:
-        from memory import build_memory_context
+        from engine.memory import build_memory_context
         summary, recent = build_memory_context(req.chat_history)
         if summary:
             history_block += f"\n--- Conversation Summary ---\n{summary}\n"
@@ -1115,12 +1113,24 @@ async def query_stream(req: QueryRequest):
     )
     full_prompt = f"{system_prompt}\n{history_block}\n--- Sources ---\n{context}\n\n--- Question ---\n{final_query}"
 
+    # ── MoE model selection + cascade ──
+    if req.model:
+        answer_model = req.model
+    elif max_gate_conf < CASCADE_THRESHOLD:
+        print(f"[QueryStream] Cascade: conf={max_gate_conf:.2f} → escalating to {CASCADE_BIG_MODEL}")
+        answer_model = CASCADE_BIG_MODEL
+    else:
+        top_expert = max(gate_result, key=gate_result.get) if gate_result else "text"
+        expert_cfg = EXPERT_MODEL_MAP.get(top_expert, {})
+        answer_model = expert_cfg.get("model", CASCADE_SMALL_MODEL)
+        print(f"[QueryStream] MoE: top_expert={top_expert} → model={answer_model}")
+
     active_experts = list(gate_result.keys())
 
     def sse_generator():
-        yield f"data: {json.dumps({'type': 'meta', 'gate': gate_result, 'sources': sources, 'active_experts': active_experts, 'rewritten_query': rewritten, 'query_log_id': query_log_id})}\n\n"
+        yield f"data: {json.dumps({'type': 'meta', 'gate': gate_result, 'sources': sources, 'active_experts': active_experts, 'rewritten_query': None, 'query_log_id': query_log_id, 'model_used': answer_model})}\n\n"
 
-        provider, api_name = _resolve_model(req.model)
+        provider, api_name = _resolve_model(answer_model)
 
         if provider == "ollama":
             for token in _stream_ollama(full_prompt, api_name):
@@ -1174,7 +1184,7 @@ class OrgConfigUpdate(BaseModel):
 @app.get("/config/{org_id}")
 async def get_org_config(org_id: str):
     try:
-        from db import get_org_config
+        from engine.db import get_org_config
         config = get_org_config(org_id)
         if config is None:
             raise HTTPException(status_code=404, detail="Org not found")
@@ -1187,7 +1197,7 @@ async def get_org_config(org_id: str):
 @app.put("/config/{org_id}")
 async def update_org_config(org_id: str, req: OrgConfigUpdate):
     try:
-        from db import update_org_config
+        from engine.db import update_org_config
         update_org_config(org_id, req.name, req.config)
         return {"status": "ok", "org_id": org_id}
     except Exception as e:
@@ -1210,7 +1220,7 @@ def _ingest_background(file_path: str, file_id: str, org_id: str, ext: str):
     _update("parsing", 0)
 
     try:
-        from db import update_file_status, upsert_chunks
+        from engine.db import update_file_status, upsert_chunks
 
         parse_tasks = {}
         with ThreadPoolExecutor(max_workers=3) as pool:
@@ -1316,7 +1326,7 @@ async def ingest_file_async(
     org_id: str = Form("default"),
 ):
     try:
-        from db import ensure_org, create_file
+        from engine.db import ensure_org, create_file
         ensure_org(org_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"DB error: {e}")
@@ -1360,7 +1370,7 @@ async def submit_feedback(req: FeedbackRequest):
     if not req.query_log_id:
         return {"status": "ok", "feedback_id": None, "note": "no query_log_id provided"}
     try:
-        from db import save_feedback
+        from engine.db import save_feedback
         fb_id = save_feedback(req.query_log_id, req.rating, req.correct_expert)
         return {"status": "ok", "feedback_id": fb_id}
     except Exception as e:
@@ -1372,17 +1382,6 @@ async def pipeline_health(org_id: Optional[str] = None):
     health["retrain_recommended"] = should_retrain_gate()
     return health
 
-
-class RewriteRequest(BaseModel):
-    query: str
-    chat_history: Optional[list[dict]] = None
-    model: Optional[str] = None
-
-@app.post("/rewrite")
-async def rewrite_endpoint(req: RewriteRequest):
-    _hist = req.chat_history or []
-    rewritten = rewrite_query(req.query, model=req.model, chat_history=_hist)
-    return {"original": req.query, "rewritten": rewritten}
 
 class GuardRequest(BaseModel):
     answer: str
@@ -1403,7 +1402,7 @@ class BM25Request(BaseModel):
 @app.post("/retrieve/bm25")
 async def retrieve_bm25(req: BM25Request):
     try:
-        from db import search_bm25
+        from engine.db import search_bm25
         chunks = search_bm25(req.query, req.org_id, req.expert_id, req.top_k)
         return {
             "chunks": [

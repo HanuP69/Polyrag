@@ -10,8 +10,8 @@ try:
 except ImportError:
     execute_values = None
 
-from config import TESTING, DATABASE_URL, EMBEDDING_DIM, DATA_DIR
-from experts.base import Chunk
+from engine.config import TESTING, DATABASE_URL, EMBEDDING_DIM, DATA_DIR
+from engine.experts.base import Chunk
 
 
 SQLITE_PATH = os.path.join(DATA_DIR, "polyrag.db")

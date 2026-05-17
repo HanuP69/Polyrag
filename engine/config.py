@@ -129,7 +129,23 @@ CHUNK_SIZE = 512            # tokens per chunk
 CHUNK_OVERLAP = 64          # token overlap between chunks
 
 # ──────────────────────────── Expert registry ────────────────────────
-EXPERT_IDS = ["text", "table", "image"]
+EXPERT_IDS = ["text", "table", "image", "code"]
+
+# ──────────────────────────── LLM Network (MoE + dynamic load) ───────
+# Each expert fires its own dedicated model.
+# Ollama evicts after each call (keep_alive=0) to free VRAM.
+# Cascade: if gate max_conf < CASCADE_THRESHOLD, escalate to CASCADE_BIG_MODEL.
+EXPERT_MODEL_MAP = {
+    "text":  {"provider": "ollama", "model": "llama3.2:3b"},
+    "table": {"provider": "ollama", "model": "llama3.2:3b"},   # good at structured reasoning
+    "image": {"provider": "ollama", "model": "llava:latest"},   # vision model
+    "code":  {"provider": "ollama", "model": "llama3.2:3b"},   # swap to codellama if you have it
+}
+
+# Cascade thresholds
+CASCADE_THRESHOLD   = 0.45   # gate max_conf below this → escalate
+CASCADE_SMALL_MODEL = "llama3.2:3b"          # local fast pass
+CASCADE_BIG_MODEL   = "llama-3.1-70b-versatile"  # groq escalation
 
 # ──────────────────────────── Paths ──────────────────────────────────
 import os

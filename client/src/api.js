@@ -182,3 +182,27 @@ export async function getActiveQueryLog(orgId = "default") {
   return res.json();
 }
 
+// --- Missing exports that App.jsx needs ---
+
+export async function getConfig(orgId = "default") {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/config?org_id=${orgId}`, { headers });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+export async function updateConfig(config, orgId = "default") {
+  const headers = await getAuthHeaders({ "Content-Type": "application/json" });
+  const res = await fetch(`${API_BASE}/api/config`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ org_id: orgId, config }),
+  });
+  return res.json();
+}
+
+// Alias: App.jsx imports `getFiles`, server exposes /api/files
+export async function getFiles(orgId = "default") {
+  return getIngestedFiles(orgId);
+}
+

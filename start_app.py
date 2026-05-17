@@ -3,6 +3,8 @@ import os
 import time
 import sys
 
+IS_WINDOWS = sys.platform == "win32"
+
 def wait_for_engine(url="http://localhost:8000/health", timeout=120):
     import urllib.request
     print(f"    Waiting for engine at {url}...")
@@ -20,36 +22,60 @@ def wait_for_engine(url="http://localhost:8000/health", timeout=120):
     return False
 
 def kill_port(port):
-    import subprocess
-    try:
-        out = subprocess.check_output(f"netstat -ano | findstr :{port}", shell=True).decode()
-        for line in out.strip().splitlines():
-            if "LISTENING" in line:
-                pid = line.strip().split()[-1]
-                subprocess.run(["taskkill", "/F", "/PID", pid, "/T"], capture_output=True)
-    except Exception:
-        pass
+    if IS_WINDOWS:
+        try:
+            out = subprocess.check_output(f"netstat -ano | findstr :{port}", shell=True).decode()
+            for line in out.strip().splitlines():
+                if "LISTENING" in line:
+                    pid = line.strip().split()[-1]
+                    subprocess.run(["taskkill", "/F", "/PID", pid, "/T"], capture_output=True)
+        except Exception:
+            pass
+    else:
+        # Linux / macOS
+        try:
+            subprocess.run(f"fuser -k {port}/tcp", shell=True, capture_output=True)
+        except Exception:
+            pass
+
+def popen_new_console(args, cwd=None, env=None, shell=False):
+    """Launch subprocess in a new console window (Windows) or background (Linux/macOS)."""
+    kwargs = dict(cwd=cwd, env=env, shell=shell)
+    if IS_WINDOWS:
+        kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
+    return subprocess.Popen(args, **kwargs)
 
 def run():
     print("=" * 60)
     print("  PolyRAG Full-Stack Restarter")
     print("=" * 60)
 
-    my_pid = os.getpid()
     root_dir = os.path.dirname(os.path.abspath(__file__))
+
+    # Build env with PYTHONPATH set so `engine.*` always resolves
+    engine_env = os.environ.copy()
+    existing_pythonpath = engine_env.get("PYTHONPATH", "")
+    engine_env["PYTHONPATH"] = (
+        root_dir + os.pathsep + existing_pythonpath
+        if existing_pythonpath else root_dir
+    )
 
     print("[1/5] Cleaning up ports...")
     kill_port(8000)
     kill_port(3001)
     kill_port(5173)
-    subprocess.run(["powershell", "-Command", "Stop-Process -Name node -Force -ErrorAction SilentlyContinue"], capture_output=True)
+    if IS_WINDOWS:
+        subprocess.run(
+            ["powershell", "-Command", "Stop-Process -Name node -Force -ErrorAction SilentlyContinue"],
+            capture_output=True
+        )
     time.sleep(2)
 
     print("[2/5] Starting Python Engine (port 8000)...")
-    subprocess.Popen(
+    popen_new_console(
         [sys.executable, "-m", "engine.main"],
         cwd=root_dir,
-        creationflags=subprocess.CREATE_NEW_CONSOLE,
+        env=engine_env,
     )
 
     print("[3/5] Waiting for Engine to load models...")
@@ -58,18 +84,16 @@ def run():
         return
 
     print("[4/5] Starting Node.js Orchestrator (port 3001)...")
-    subprocess.Popen(
+    popen_new_console(
         ["node", "index.js"],
         cwd=os.path.join(root_dir, "server"),
-        creationflags=subprocess.CREATE_NEW_CONSOLE,
     )
 
     print("[5/5] Starting React Frontend (port 5173)...")
-    subprocess.Popen(
+    popen_new_console(
         "npm run dev",
         cwd=os.path.join(root_dir, "client"),
         shell=True,
-        creationflags=subprocess.CREATE_NEW_CONSOLE,
     )
 
     time.sleep(2)
