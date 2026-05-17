@@ -93,7 +93,7 @@ async def lifespan(app: FastAPI):
     global _embed_model
     try:
         from sentence_transformers import SentenceTransformer
-        _embed_model = SentenceTransformer(EMBEDDING_MODEL)
+        _embed_model = SentenceTransformer(EMBEDDING_MODEL, device="cpu")
         print(f"[Main] [OK] Shared embedding model loaded: {EMBEDDING_MODEL}")
     except Exception as e:
         print(f"[Main] [WARN] Shared embedding model failed: {e}")
@@ -127,6 +127,7 @@ class RetrieveRequest(BaseModel):
     expert_id: str
     org_id: str = "default"
     top_k: int = 10
+    file_ids: Optional[list[str]] = None
 
 class RerankRequest(BaseModel):
     query: str
@@ -140,6 +141,7 @@ class QueryRequest(BaseModel):
     model: Optional[str] = None
     session_id: Optional[str] = None
     chat_history: Optional[list[dict]] = None
+    file_ids: Optional[list[str]] = None
 
 class EmbedRequest(BaseModel):
     chunks: list[dict]
@@ -307,7 +309,12 @@ async def retrieve_endpoint(req: RetrieveRequest):
     expert = _experts[req.expert_id]
     try:
         query_vec = _cached_embed_query(req.query)
-        chunks = await asyncio.to_thread(expert.retrieve, query_vec, req.org_id, req.top_k)
+        # Pass file_ids if provided
+        if req.file_ids:
+            from engine.db import search_chunks
+            chunks = await asyncio.to_thread(search_chunks, query_vec, req.org_id, req.expert_id, req.top_k, req.file_ids)
+        else:
+            chunks = await asyncio.to_thread(expert.retrieve, query_vec, req.org_id, req.top_k)
         return {
             "expert_id": req.expert_id,
             "chunks": [
@@ -1043,8 +1050,13 @@ async def query_stream(req: QueryRequest):
         if expert_id not in _experts:
             continue
         expert = _experts[expert_id]
-        retrieve_tasks.append(loop.run_in_executor(_io_pool,
-            expert.retrieve, query_vec, req.org_id, req.top_k))
+        if req.file_ids:
+            from engine.db import search_chunks as _sc
+            retrieve_tasks.append(loop.run_in_executor(_io_pool,
+                _sc, query_vec, req.org_id, expert_id, req.top_k, req.file_ids))
+        else:
+            retrieve_tasks.append(loop.run_in_executor(_io_pool,
+                expert.retrieve, query_vec, req.org_id, req.top_k))
         retrieve_keys.append(expert_id)
         retrieve_tasks.append(loop.run_in_executor(_io_pool,
             search_bm25, final_query, req.org_id, expert_id, 15))
@@ -1416,6 +1428,31 @@ async def retrieve_bm25(req: BM25Request):
             ],
             "total": len(chunks),
         }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/files/{org_id}")
+async def get_org_files(org_id: str):
+    """Get all files for an org."""
+    try:
+        from engine.db import get_files_by_org
+        files = get_files_by_org(org_id)
+        return files
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/files/{org_id}/{file_id}")
+async def delete_org_file(org_id: str, file_id: str):
+    """Delete a file and its chunks."""
+    try:
+        from engine.db import delete_file
+        success = delete_file(org_id, file_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="File not found")
+        return {"status": "success"}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

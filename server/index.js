@@ -60,9 +60,14 @@ if (cluster.isPrimary) {
     });
   });
 
+  // Public routes (no auth needed)
+  app.use("/api/health", ingestRoutes);
+  app.use("/api/models", ingestRoutes);
+
   // Protected
   app.use("/api/query", authMiddleware);
   app.use("/api/ingest", authMiddleware);
+  app.use("/api/files", authMiddleware);
   app.use("/api/feedback", authMiddleware);
   app.use("/api/config", authMiddleware);
   

@@ -1,35 +1,53 @@
-const { createClient } = require('@supabase/supabase-js');
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../../client/.env') });
 
-const supabaseUrl = process.env.VITE_SUPABASE_URL || 'https://mock-supabase-url.supabase.co';
-const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY || 'mock-anon-key';
+// LOCAL_DEV mode: skip Supabase auth and use a default local user.
+// Set LOCAL_DEV=false and configure Supabase env vars for production.
+const LOCAL_DEV = process.env.LOCAL_DEV !== 'false';
 
-const supabase = createClient(supabaseUrl, supabaseKey);
+let supabase = null;
+if (!LOCAL_DEV) {
+  const { createClient } = require('@supabase/supabase-js');
+  const supabaseUrl = process.env.VITE_SUPABASE_URL;
+  const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+  if (supabaseUrl && supabaseKey) {
+    supabase = createClient(supabaseUrl, supabaseKey);
+  }
+}
 
 async function authMiddleware(req, res, next) {
+  // --- Local dev bypass ---
+  if (LOCAL_DEV) {
+    req.user = { id: 'default', email: 'local@polyrag' };
+    if (req.body) req.body.org_id = 'default';
+    return next();
+  }
+
+  // --- Production: verify Supabase JWT ---
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Missing or invalid Authorization header' });
   }
 
   const token = authHeader.split(' ')[1];
-  
+
+  // Allow local dev token passthrough
+  if (token === 'local-dev-token') {
+    req.user = { id: 'default', email: 'local@polyrag' };
+    if (req.body) req.body.org_id = 'default';
+    return next();
+  }
+
   try {
+    if (!supabase) {
+      return res.status(500).json({ error: 'Supabase not configured' });
+    }
     const { data: { user }, error } = await supabase.auth.getUser(token);
-    
     if (error || !user) {
       return res.status(401).json({ error: 'Unauthorized: Invalid token' });
     }
-
-    // Inject user info into the request
     req.user = user;
-    
-    // Enforce org_id to be the user's ID
-    if (req.body) {
-      req.body.org_id = user.id;
-    }
-    
+    if (req.body) req.body.org_id = user.id;
     next();
   } catch (err) {
     console.error('[Auth] Token verification failed:', err.message);

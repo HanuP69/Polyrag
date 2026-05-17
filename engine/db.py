@@ -442,21 +442,30 @@ def search_chunks(
     query_vec: np.ndarray,
     org_id: str,
     expert_id: str,
-    top_k: int = 10
+    top_k: int = 10,
+    file_ids: list = None
 ) -> list[Chunk]:
     conn = get_conn()
     if TESTING:
-        return _search_sqlite(conn, query_vec, org_id, expert_id, top_k)
+        return _search_sqlite(conn, query_vec, org_id, expert_id, top_k, file_ids=file_ids)
     else:
-        return _search_pgvector(conn, query_vec, org_id, expert_id, top_k)
+        return _search_pgvector(conn, query_vec, org_id, expert_id, top_k, file_ids=file_ids)
 
 
-def _search_sqlite(conn, query_vec, org_id, expert_id, top_k):
-    rows = conn.execute(
-        """SELECT chunk_id, org_id, file_id, expert_id, content, metadata, embedding
-           FROM chunks WHERE org_id = ? AND expert_id = ?""",
-        (org_id, expert_id)
-    ).fetchall()
+def _search_sqlite(conn, query_vec, org_id, expert_id, top_k, file_ids=None):
+    if file_ids:
+        placeholders = ",".join("?" * len(file_ids))
+        rows = conn.execute(
+            f"""SELECT chunk_id, org_id, file_id, expert_id, content, metadata, embedding
+               FROM chunks WHERE org_id = ? AND expert_id = ? AND file_id IN ({placeholders})""",
+            (org_id, expert_id, *file_ids)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            """SELECT chunk_id, org_id, file_id, expert_id, content, metadata, embedding
+               FROM chunks WHERE org_id = ? AND expert_id = ?""",
+            (org_id, expert_id)
+        ).fetchall()
     if not rows:
         return []
 
@@ -504,18 +513,29 @@ def _search_sqlite(conn, query_vec, org_id, expert_id, top_k):
     return results
 
 
-def _search_pgvector(conn, query_vec, org_id, expert_id, top_k):
+def _search_pgvector(conn, query_vec, org_id, expert_id, top_k, file_ids=None):
     cur = conn.cursor()
     embedding_list = query_vec.tolist()
-    cur.execute(
-        """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
-                  1 - (embedding <=> %s::vector) as similarity
-           FROM chunks
-           WHERE org_id = %s AND expert_id = %s
-           ORDER BY embedding <=> %s::vector
-           LIMIT %s""",
-        (embedding_list, org_id, expert_id, embedding_list, top_k)
-    )
+    if file_ids:
+        cur.execute(
+            """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
+                      1 - (embedding <=> %s::vector) as similarity
+               FROM chunks
+               WHERE org_id = %s AND expert_id = %s AND file_id = ANY(%s)
+               ORDER BY embedding <=> %s::vector
+               LIMIT %s""",
+            (embedding_list, org_id, expert_id, file_ids, embedding_list, top_k)
+        )
+    else:
+        cur.execute(
+            """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
+                      1 - (embedding <=> %s::vector) as similarity
+               FROM chunks
+               WHERE org_id = %s AND expert_id = %s
+               ORDER BY embedding <=> %s::vector
+               LIMIT %s""",
+            (embedding_list, org_id, expert_id, embedding_list, top_k)
+        )
     rows = cur.fetchall()
     results = []
     for row in rows:

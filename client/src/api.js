@@ -3,19 +3,28 @@ import { supabase } from "./supabaseClient";
 const API_BASE = "http://localhost:3001";
 
 async function getAuthHeaders(headers = {}) {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.access_token) {
-    headers["Authorization"] = `Bearer ${session.access_token}`;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (session?.access_token) {
+      headers["Authorization"] = `Bearer ${session.access_token}`;
+    } else {
+      // Local dev: no Supabase session — send a passthrough token
+      headers["Authorization"] = "Bearer local-dev-token";
+    }
+  } catch {
+    headers["Authorization"] = "Bearer local-dev-token";
   }
   return headers;
 }
 
-export async function queryStream(query, orgId = "default", model = "llama3.2:3b", chatHistory = [], onMeta, onToken, onGuard, onDone) {
+export async function queryStream(query, orgId = "default", model = "llama3.2:3b", chatHistory = [], fileIds = [], onMeta, onToken, onGuard, onDone) {
   const headers = await getAuthHeaders({ "Content-Type": "application/json" });
+  const body = { query, org_id: orgId, model, chat_history: chatHistory };
+  if (fileIds && fileIds.length > 0) body.file_ids = fileIds;
   const res = await fetch(`${API_BASE}/api/query`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ query, org_id: orgId, model, chat_history: chatHistory }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {
@@ -204,5 +213,15 @@ export async function updateConfig(config, orgId = "default") {
 // Alias: App.jsx imports `getFiles`, server exposes /api/files
 export async function getFiles(orgId = "default") {
   return getIngestedFiles(orgId);
+}
+
+export async function getDbHealth() {
+  try {
+    const res = await fetch(`${API_BASE}/api/health/db`);
+    if (!res.ok) return null;
+    return res.json();
+  } catch {
+    return null;
+  }
 }
 

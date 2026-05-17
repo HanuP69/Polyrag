@@ -9,7 +9,7 @@ def _get_nli():
     global _nli_model
     if _nli_model is None:
         print(f"[Guard] Loading NLI model: {NLI_MODEL}")
-        _nli_model = CrossEncoder(NLI_MODEL, max_length=512)
+        _nli_model = CrossEncoder(NLI_MODEL, max_length=512, device="cpu")
         print("[Guard] [OK] NLI model loaded")
     return _nli_model
 

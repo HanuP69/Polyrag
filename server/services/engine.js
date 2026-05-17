@@ -24,13 +24,15 @@ async function gate(query) {
   return data;
 }
 
-async function retrieve(query, expertId, orgId, topK = 10) {
-  const { data } = await client.post("/retrieve", {
+async function retrieve(query, expertId, orgId, topK = 10, fileIds = null) {
+  const body = {
     query,
     expert_id: expertId,
     org_id: orgId,
     top_k: topK,
-  });
+  };
+  if (fileIds && fileIds.length > 0) body.file_ids = fileIds;
+  const { data } = await client.post("/retrieve", body);
   return data;
 }
 

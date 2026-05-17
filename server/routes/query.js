@@ -8,7 +8,7 @@ const GATE_THRESHOLD = 0.4;
 
 router.post("/api/query", async (req, res) => {
   const start = Date.now();
-  const { query, top_k = 10, system_prompt, model, chat_history = [] } = req.body;
+  const { query, top_k = 10, system_prompt, model, chat_history = [], file_ids } = req.body;
   const org_id = req.user?.id || "default";
 
   if (!query) {
@@ -35,7 +35,7 @@ router.post("/api/query", async (req, res) => {
 
     for (const [expertId] of activeExperts) {
       retrievalPromises.push(
-        engine.retrieve(finalQuery, expertId, org_id, top_k).catch((err) => {
+        engine.retrieve(finalQuery, expertId, org_id, top_k, file_ids).catch((err) => {
           console.error(`[Query] Vector retrieve ${expertId} failed:`, err.message);
           return { chunks: [] };
         })
@@ -74,7 +74,7 @@ router.post("/api/query", async (req, res) => {
         );
 
         const fallbackPromises = missingExperts.map((expertId) =>
-          engine.retrieve(finalQuery, expertId, org_id, top_k).catch(() => ({ chunks: [] }))
+          engine.retrieve(finalQuery, expertId, org_id, top_k, file_ids).catch(() => ({ chunks: [] }))
         );
         const fallbackResults = await Promise.all(fallbackPromises);
         missingExperts.forEach((expertId, i) => {

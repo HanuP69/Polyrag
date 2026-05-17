@@ -1,1 +1,1 @@
-# PolyRAG Engine
+# PolyRAG Experts module
