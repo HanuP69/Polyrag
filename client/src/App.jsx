@@ -84,7 +84,13 @@ const MarkdownRenderer = ({ content }) => {
         const renderedLines = [];
 
         const renderInline = (text) => {
-          let segments = [text];
+          let cleanedText = text;
+          if (typeof cleanedText === "string") {
+            cleanedText = cleanedText.replace(/\\\((.*?)\\\)/g, "$1");
+            cleanedText = cleanedText.replace(/\\\[(.*?)\\\]/g, "$1");
+          }
+
+          let segments = [cleanedText];
           // bold
           let newSegments = [];
           for (let seg of segments) {
@@ -126,7 +132,43 @@ const MarkdownRenderer = ({ content }) => {
           }
           segments = newSegments;
 
-          return segments;
+          // math sub/superscript parser
+          const parseSubAndSuper = (txt) => {
+            if (typeof txt !== "string") return txt;
+            const regex = /(\b[a-zA-Z0-9]+_(?:{[^}]+}|[a-zA-Z0-9+-=]+)|\b[a-zA-Z0-9]+\^(?:{[^}]+}|[a-zA-Z0-9+-=()]+))/g;
+            const tokens = txt.split(regex);
+            return tokens.map((token, i) => {
+              const subMatch = token.match(/^([a-zA-Z0-9]+)_(?:{([^}]+)}|([a-zA-Z0-9+-=]+))$/);
+              if (subMatch) {
+                const base = subMatch[1];
+                const subText = subMatch[2] || subMatch[3];
+                return <span key={i} style={{ fontStyle: "italic", fontFamily: "var(--font-serif)", fontSize: "1.1em" }}>{base}<sub>{subText}</sub></span>;
+              }
+              const superMatch = token.match(/^([a-zA-Z0-9]+)\^(?:{([^}]+)}|([a-zA-Z0-9+-=()]+))$/);
+              if (superMatch) {
+                const base = superMatch[1];
+                const superText = superMatch[2] || superMatch[3];
+                return <span key={i} style={{ fontStyle: "italic", fontFamily: "var(--font-serif)", fontSize: "1.1em" }}>{base}<sup>{superText}</sup></span>;
+              }
+              return token;
+            });
+          };
+
+          let finalSegments = [];
+          for (let seg of segments) {
+            if (typeof seg === "string") {
+              const parsed = parseSubAndSuper(seg);
+              if (Array.isArray(parsed)) {
+                finalSegments.push(...parsed);
+              } else {
+                finalSegments.push(parsed);
+              }
+            } else {
+              finalSegments.push(seg);
+            }
+          }
+
+          return finalSegments;
         };
 
         const flushList = (key) => {
