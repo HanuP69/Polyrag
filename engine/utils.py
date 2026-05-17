@@ -2,7 +2,7 @@ from __future__ import annotations
 
 
 def resolve_model(model_key: str | None = None) -> tuple[str, str]:
-    from config import MODEL_REGISTRY, TESTING, OLLAMA_MODEL, GROQ_MODEL
+    from engine.config import MODEL_REGISTRY, TESTING, OLLAMA_MODEL, GROQ_MODEL
 
     if model_key and model_key in MODEL_REGISTRY:
         entry = MODEL_REGISTRY[model_key]

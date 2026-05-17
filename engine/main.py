@@ -9,7 +9,7 @@ import uuid as uuid_lib
 from typing import Optional
 from contextlib import asynccontextmanager
 import threading
-from utils import resolve_model
+from engine.utils import resolve_model
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
@@ -19,19 +19,19 @@ from pydantic import BaseModel
 import requests
 import numpy as np
 
-from config import (
+from engine.config import (
     TESTING, OLLAMA_BASE_URL, OLLAMA_MODEL,
     GROQ_API_KEY, GROQ_MODEL,
     GEMINI_API_KEY, GEMINI_BASE_URL,
     DEFAULT_TOP_K, GATE_THRESHOLD,
     UPLOAD_DIR, EXPERT_IDS, EMBEDDING_MODEL, MODEL_REGISTRY
 )
-from experts.base import Chunk
-from fuse import rrf_fuse
-from rerank import rerank
-from rewrite import rewrite_query
-from guard import verify_answer
-from heal import get_pipeline_health, should_retrain_gate
+from engine.experts.base import Chunk
+from engine.fuse import rrf_fuse
+from engine.rerank import rerank
+from engine.rewrite import rewrite_query
+from engine.guard import verify_answer
+from engine.heal import get_pipeline_health, should_retrain_gate
 
 _gate = None
 _experts = {}
@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI):
     print("=" * 60)
 
     try:
-        from db import init_db, ensure_org
+        from engine.db import init_db, ensure_org
         init_db()
         ensure_org("default", "Default Organization")
         print("[Main] [OK] Database initialized")
@@ -61,7 +61,7 @@ async def lifespan(app: FastAPI):
         print("[Main]   Running without database -- some features will be unavailable")
 
     try:
-        from gate.gate import get_gate
+        from engine.gate.gate import get_gate
         _gate = get_gate()
         print("[Main] [OK] Gate loaded")
     except FileNotFoundError:
@@ -70,10 +70,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Main] [WARN] Gate load failed: {e}")
 
-    from experts.text import TextExpert
-    from experts.table import TableExpert
-    from experts.image import ImageExpert
-    from experts.code import CodeExpert
+    from engine.experts.text import TextExpert
+    from engine.experts.table import TableExpert
+    from engine.experts.image import ImageExpert
+    from engine.experts.code import CodeExpert
     _experts["text"] = TextExpert()
     _experts["table"] = TableExpert()
     _experts["image"] = ImageExpert()
@@ -1424,6 +1424,6 @@ async def retrieve_bm25(req: BM25Request):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
-        "main:app", host="0.0.0.0", port=8000, reload=True,
+        "engine.main:app", host="0.0.0.0", port=8000, reload=True,
         reload_excludes=["scripts/*", "tests/*", "client/*", "server/*", "data/*", "uploads/*"]
     )

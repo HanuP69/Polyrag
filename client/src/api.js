@@ -93,3 +93,92 @@ export async function getModels() {
   const res = await fetch(`${API_BASE}/api/models`);
   return res.json();
 }
+export async function getIngestedFiles(orgId = "default") {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/files?org_id=${orgId}`, { headers });
+  return res.json();
+}
+
+export async function deleteFile(fileId, orgId = "default") {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/files/${fileId}?org_id=${orgId}`, {
+    method: "DELETE",
+    headers,
+  });
+  return res.json();
+}
+
+export async function fetchQueryLog(logId) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/query-logs/${logId}`, { headers });
+  return res.json();
+}
+
+export async function exportQueryLog(queryLogId, orgId = "default") {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/query-logs/${queryLogId}/export?org_id=${orgId}`, {
+    headers,
+  });
+
+  const blob = await res.blob();
+  const url = window.URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `query_log_${queryLogId}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.URL.revokeObjectURL(url);
+}
+
+export async function fetchDebugInfo(queryLogId, orgId = "default") {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/debug/${queryLogId}?org_id=${orgId}`, {
+    headers,
+  });
+  return res.json();
+}
+
+export async function forceRetrainGate(orgId = "default") {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/admin/retrain-gate?org_id=${orgId}`, {
+    method: "POST",
+    headers,
+  });
+  return res.json();
+}
+
+export async function resetGate(orgId = "default") {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/admin/reset-gate?org_id=${orgId}`, {
+    method: "POST",
+    headers,
+  });
+  return res.json();
+}
+
+export async function deleteQueryLog(queryLogId, orgId = "default") {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/query-logs/${queryLogId}?org_id=${orgId}`, {
+    method: "DELETE",
+    headers,
+  });
+  return res.json();
+}
+
+export async function getRagDataReport(orgId = "default") {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/admin/rag-report?org_id=${orgId}`, {
+    headers,
+  });
+  return res.json();
+}
+
+export async function getActiveQueryLog(orgId = "default") {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/active-query-log?org_id=${orgId}`, {
+    headers,
+  });
+  return res.json();
+}
+

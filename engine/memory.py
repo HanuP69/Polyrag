@@ -48,8 +48,8 @@ def compress_summary(old_context: str, model: str = None) -> str:
     Use LLM to compress old conversation context into a brief summary.
     Called asynchronously after each response when history is long.
     """
-    from rewrite import _resolve
-    from config import (
+    from engine.rewrite import _resolve
+    from engine.config import (
         OLLAMA_BASE_URL, GROQ_API_KEY,
         GEMINI_API_KEY, GEMINI_BASE_URL
     )
