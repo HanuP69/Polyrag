@@ -68,6 +68,10 @@ def get_pipeline_health(org_id: str = None) -> dict:
 
     except Exception as e:
         print(f"[Heal] Health check error: {e}")
+    finally:
+        if not TESTING:
+            from engine.db import _return_pg
+            _return_pg(conn)
 
     return health
 
@@ -113,5 +117,9 @@ def get_feedback_for_retraining() -> list[dict]:
                 })
     except Exception as e:
         print(f"[Heal] Failed to fetch feedback: {e}")
+    finally:
+        if not TESTING:
+            from engine.db import _return_pg
+            _return_pg(conn)
 
     return entries

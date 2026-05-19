@@ -56,8 +56,9 @@ router.post("/api/ingest", upload.single("file"), async (req, res) => {
 });
 
 router.get("/api/ingest/:fileId", async (req, res) => {
+  const orgId = req.user?.id || "default";
   try {
-    const status = await engine.getIngestStatus(req.params.fileId);
+    const status = await engine.getIngestStatus(req.params.fileId, orgId);
     res.json(status);
   } catch (err) {
     if (err.response && err.response.status === 404) {

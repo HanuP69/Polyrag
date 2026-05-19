@@ -4,13 +4,14 @@ const engine = require("../services/engine");
 
 router.post("/api/feedback", async (req, res) => {
   const { query_log_id, rating, correct_expert } = req.body;
+  const orgId = req.user?.id || "default";
 
   if (!query_log_id || rating === undefined) {
     return res.status(400).json({ error: "query_log_id and rating are required" });
   }
 
   try {
-    const result = await engine.submitFeedback(query_log_id, rating, correct_expert);
+    const result = await engine.submitFeedback(query_log_id, rating, correct_expert, orgId);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

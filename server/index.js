@@ -30,13 +30,16 @@ if (cluster.isPrimary) {
   const ingestRoutes = require("./routes/ingest");
   const configRoutes = require("./routes/config");
   const feedbackRoutes = require("./routes/feedback");
+  const chatRoutes = require("./routes/chat");
   const cache = require("./services/cache");
 
   const PORT = process.env.PORT || 3001;
   const app = express();
+  const path = require("path");
 
   app.use(cors({ origin: "*", credentials: true }));
   app.use(express.json({ limit: "10mb" }));
+  app.use("/api/uploads", express.static(path.join(__dirname, "../uploads")));
   app.use(morgan("short"));
 
   const limiter = rateLimit({
@@ -60,9 +63,7 @@ if (cluster.isPrimary) {
     });
   });
 
-  // Public routes (no auth needed)
-  app.use("/api/health", ingestRoutes);
-  app.use("/api/models", ingestRoutes);
+  // Public routes (no auth needed) — specific routers mounted below
 
   // Protected
   app.use("/api/query", authMiddleware);
@@ -70,11 +71,13 @@ if (cluster.isPrimary) {
   app.use("/api/files", authMiddleware);
   app.use("/api/feedback", authMiddleware);
   app.use("/api/config", authMiddleware);
+  app.use("/api/chat", authMiddleware);
   
   app.use(queryRoutes);
   app.use(ingestRoutes);
   app.use(feedbackRoutes);
   app.use(configRoutes);
+  app.use(chatRoutes);
 
   app.use((err, req, res, next) => {
     console.error("[Server] Unhandled error:", err.message);

@@ -224,4 +224,43 @@ export async function getDbHealth() {
     return null;
   }
 }
+export async function getChatSessions() {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/chat/sessions`, { headers });
+  return res.json();
+}
 
+export async function createChatSession(sessionId, title) {
+  const headers = await getAuthHeaders({ "Content-Type": "application/json" });
+  const res = await fetch(`${API_BASE}/api/chat/sessions`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ session_id: sessionId, title }),
+  });
+  return res.json();
+}
+
+export async function deleteChatSession(sessionId) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers,
+  });
+  return res.json();
+}
+
+export async function getChatMessages(sessionId) {
+  const headers = await getAuthHeaders();
+  const res = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}/messages`, { headers });
+  return res.json();
+}
+
+export async function addChatMessage(sessionId, messageId, role, content, sources = []) {
+  const headers = await getAuthHeaders({ "Content-Type": "application/json" });
+  const res = await fetch(`${API_BASE}/api/chat/sessions/${sessionId}/messages`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ message_id: messageId, role, content, sources }),
+  });
+  return res.json();
+}

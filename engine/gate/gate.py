@@ -35,7 +35,7 @@ class Gate:
                 "Run generate_data.py then train.py first."
             )
 
-        checkpoint = torch.load(GATE_MODEL_PATH, map_location="cpu", weights_only=True)
+        checkpoint = torch.load(GATE_MODEL_PATH, map_location="cpu")
         input_dim = checkpoint.get("input_dim", EMBEDDING_DIM)
         num_classes = checkpoint.get("num_classes", 4)
 

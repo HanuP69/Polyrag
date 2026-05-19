@@ -43,10 +43,20 @@ from engine.heal import get_pipeline_health, should_retrain_gate
 _gate = None
 _experts = {}
 _embed_model = None
-_query_cache = {}
 _ingestion_status = {}
-MAX_CACHE = 500
-_io_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="polyrag-io")
+
+# LRU query cache with TTL (auto-evicts after 300s, max 500 entries)
+try:
+    from cachetools import TTLCache
+    _query_cache = TTLCache(maxsize=500, ttl=300)
+except ImportError:
+    # Fallback: plain dict (no eviction, but won't crash)
+    _query_cache = {}
+
+_io_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="polyrag-io")    # HTTP calls to Groq/Gemini/Ollama
+_cpu_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="polyrag-cpu")  # Embedding, reranking, gate inference
+_ingest_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="polyrag-ingest") # Orchestrates ingestion jobs
+_parse_pool = ThreadPoolExecutor(max_workers=6, thread_name_prefix="polyrag-parse")   # PDF/CSV/Image parsing
 
 
 @asynccontextmanager
@@ -98,6 +108,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[Main] [WARN] Shared embedding model failed: {e}")
 
+    # Eager-load reranker at startup to prevent 5-15s block on first query
+    try:
+        from engine.rerank import get_reranker
+        get_reranker()
+        print("[Main] [OK] Reranker pre-loaded at startup")
+    except Exception as e:
+        print(f"[Main] [WARN] Reranker pre-load failed: {e}")
+
     yield
 
     print("[Main] Shutting down...")
@@ -112,11 +130,27 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:5173", "http://localhost:3001", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+from fastapi import Request
+from engine.db import tenant_context
+
+@app.middleware("http")
+async def add_tenant_context(request: Request, call_next):
+    tenant_id = request.headers.get("x-tenant-id")
+    if not tenant_id:
+        tenant_id = request.query_params.get("org_id", "default")
+    token = tenant_context.set(tenant_id)
+    try:
+        response = await call_next(request)
+        return response
+    finally:
+        tenant_context.reset(token)
 
 
 class GateRequest(BaseModel):
@@ -282,22 +316,27 @@ def _shared_embed_query(query: str) -> np.ndarray:
         raise HTTPException(status_code=503, detail="Embedding model not ready yet")
     return _embed_model.encode(query, normalize_embeddings=True)
 
-_embed_cache = {}
+from collections import OrderedDict
+_embed_cache = OrderedDict()
 _EMBED_CACHE_MAX = 1000
 _embed_cache_lock = threading.Lock()
 
+def _normalize_query(q: str) -> str:
+    """Normalize query for cache: lowercase, strip, collapse whitespace."""
+    import re
+    return re.sub(r'\s+', ' ', q.lower().strip())
+
 def _cached_embed_query(query: str) -> np.ndarray:
+    key = _normalize_query(query)
     with _embed_cache_lock:
-        if query in _embed_cache:
-            return _embed_cache[query]
+        if key in _embed_cache:
+            _embed_cache.move_to_end(key)  # LRU: mark as recently used
+            return _embed_cache[key]
     vec = _shared_embed_query(query)
     with _embed_cache_lock:
-        if len(_embed_cache) < _EMBED_CACHE_MAX:
-            _embed_cache[query] = vec
-        else:
-            oldest = next(iter(_embed_cache))
-            del _embed_cache[oldest]
-            _embed_cache[query] = vec
+        if len(_embed_cache) >= _EMBED_CACHE_MAX:
+            _embed_cache.popitem(last=False)  # Evict oldest
+        _embed_cache[key] = vec
     return vec
 
 
@@ -517,7 +556,7 @@ async def ingest_github(
     all_chunks = []
     experts_used = ["code"]
 
-    from experts.code import CODE_EXTENSIONS
+    from engine.experts.code import CODE_EXTENSIONS
 
     with tempfile.TemporaryDirectory() as tmpdir:
         zip_path = os.path.join(tmpdir, "repo.zip")
@@ -598,7 +637,7 @@ async def ingest_github(
 
 
 @app.get("/file/{file_id}")
-async def get_file(file_id: str):
+def get_file(file_id: str):
     try:
         from engine.db import get_file_status
         status = get_file_status(file_id)
@@ -616,23 +655,10 @@ async def get_file(file_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/query")
-async def query_pipeline(req: QueryRequest):
-    start = time.time()
-
-    _hist_hash = hashlib.md5(str(req.chat_history).encode()).hexdigest()[:8]
-    cache_key = f"{req.org_id}:{req.model}:{_hist_hash}:{hashlib.md5(req.query.encode()).hexdigest()}"
-    if cache_key in _query_cache:
-        cached = _query_cache[cache_key]
-        cached["cached"] = True
-        return cached
-
-    loop = asyncio.get_event_loop()
-
-    # Gate only — no rewriter
-    gate_task = loop.run_in_executor(_io_pool,
+async def _run_retrieval_pipeline(req: QueryRequest, loop, start: float):
+    gate_task = loop.run_in_executor(_cpu_pool,
         lambda: _gate.route(req.query) if _gate else {"text": 1.0})
-    gate_raw_task = loop.run_in_executor(_io_pool,
+    gate_raw_task = loop.run_in_executor(_cpu_pool,
         lambda: _gate.route_raw(req.query) if _gate else {"text": 1.0, "table": 0.0, "image": 0.0})
 
     gate_result, gate_raw = await asyncio.gather(gate_task, gate_raw_task)
@@ -643,7 +669,7 @@ async def query_pipeline(req: QueryRequest):
     t_gate = time.time()
     print(f"[Query] Gate: {int((t_gate-start)*1000)}ms (conf={max_gate_conf:.2f}, experts={list(gate_result.keys())})")
 
-    query_vec = await loop.run_in_executor(_io_pool, _cached_embed_query, final_query)
+    query_vec = await loop.run_in_executor(_cpu_pool, _cached_embed_query, final_query)
 
     t_embed = time.time()
     print(f"[Query] Embed: {int((t_embed-t_gate)*1000)}ms")
@@ -656,8 +682,13 @@ async def query_pipeline(req: QueryRequest):
         if expert_id not in _experts:
             continue
         expert = _experts[expert_id]
-        retrieve_tasks.append(loop.run_in_executor(_io_pool,
-            expert.retrieve, query_vec, req.org_id, req.top_k))
+        if req.file_ids:
+            from engine.db import search_chunks as _sc
+            retrieve_tasks.append(loop.run_in_executor(_io_pool,
+                _sc, query_vec, req.org_id, expert_id, req.top_k, req.file_ids))
+        else:
+            retrieve_tasks.append(loop.run_in_executor(_io_pool,
+                expert.retrieve, query_vec, req.org_id, req.top_k))
         retrieve_keys.append(expert_id)
         retrieve_tasks.append(loop.run_in_executor(_io_pool,
             search_bm25, final_query, req.org_id, expert_id, 15))
@@ -706,7 +737,7 @@ async def query_pipeline(req: QueryRequest):
         fused_chunks = []
 
     if fused_chunks:
-        fused_chunks = await loop.run_in_executor(_io_pool,
+        fused_chunks = await loop.run_in_executor(_cpu_pool,
             rerank, final_query, fused_chunks, 12)
 
     t_rerank = time.time()
@@ -743,21 +774,36 @@ async def query_pipeline(req: QueryRequest):
     )
     full_prompt = f"{system_prompt}\n{history_block}\n--- Sources ---\n{context}\n\n--- Question ---\n{final_query}"
 
-    # ── Cascade: small local model first, escalate to big cloud if low confidence ──
-    fired_experts = list(gate_result.keys())
-    # Determine model: user override > cascade logic > expert-specific default
     if req.model:
         answer_model = req.model
     elif max_gate_conf < CASCADE_THRESHOLD:
-        # Low confidence → fast local pass first, then escalate
         print(f"[Query] Cascade: conf={max_gate_conf:.2f} < {CASCADE_THRESHOLD}, escalating to {CASCADE_BIG_MODEL}")
         answer_model = CASCADE_BIG_MODEL
     else:
-        # MoE: pick the model for the top-weighted expert
         top_expert = max(gate_result, key=gate_result.get) if gate_result else "text"
         expert_cfg = EXPERT_MODEL_MAP.get(top_expert, {})
         answer_model = expert_cfg.get("model", CASCADE_SMALL_MODEL)
         print(f"[Query] MoE routing: top_expert={top_expert} → model={answer_model}")
+
+    return full_prompt, answer_model, gate_result, sources, fused_chunks, t_rerank
+
+@app.post("/query")
+async def query_pipeline(req: QueryRequest):
+    start = time.time()
+
+    _hist_hash = hashlib.md5(str(req.chat_history).encode()).hexdigest()[:8]
+    cache_key = f"{req.org_id}:{req.model}:{_hist_hash}:{hashlib.md5(req.query.encode()).hexdigest()}"
+    if cache_key in _query_cache:
+        cached = _query_cache[cache_key]
+        cached["cached"] = True
+        return cached
+
+    loop = asyncio.get_running_loop()
+    
+    full_prompt, answer_model, gate_result, sources, fused_chunks, t_rerank = await _run_retrieval_pipeline(req, loop, start)
+
+    # Record which experts were fired for this query (used in logging and response)
+    fired_experts = list(gate_result.keys()) if gate_result else []
 
     answer = await _generate_answer(full_prompt, req.query, answer_model)
 
@@ -806,8 +852,7 @@ async def query_pipeline(req: QueryRequest):
         "model_used": answer_model,
     }
 
-    if len(_query_cache) < MAX_CACHE:
-        _query_cache[cache_key] = result
+    _query_cache[cache_key] = result
 
     return result
 
@@ -1027,58 +1072,9 @@ async def generate_stream(req: GenerateRequest):
 @app.post("/query/stream")
 async def query_stream(req: QueryRequest):
     start = time.time()
-    loop = asyncio.get_event_loop()
-
-    # Gate only — rewriter removed
-    gate_task = loop.run_in_executor(_io_pool,
-        lambda: _gate.route(req.query) if _gate else {"text": 1.0})
-    gate_raw_task = loop.run_in_executor(_io_pool,
-        lambda: _gate.route_raw(req.query) if _gate else {"text": 1.0, "table": 0.0, "image": 0.0})
-
-    gate_result, gate_raw = await asyncio.gather(gate_task, gate_raw_task)
-
-    final_query = req.query
-    max_gate_conf = max(gate_raw.values()) if gate_raw else 0
-
-    query_vec = await loop.run_in_executor(_io_pool, _cached_embed_query, final_query)
-
-    from engine.db import search_bm25
-    retrieve_tasks = []
-    retrieve_keys = []
-
-    for expert_id, weight in gate_result.items():
-        if expert_id not in _experts:
-            continue
-        expert = _experts[expert_id]
-        if req.file_ids:
-            from engine.db import search_chunks as _sc
-            retrieve_tasks.append(loop.run_in_executor(_io_pool,
-                _sc, query_vec, req.org_id, expert_id, req.top_k, req.file_ids))
-        else:
-            retrieve_tasks.append(loop.run_in_executor(_io_pool,
-                expert.retrieve, query_vec, req.org_id, req.top_k))
-        retrieve_keys.append(expert_id)
-        retrieve_tasks.append(loop.run_in_executor(_io_pool,
-            search_bm25, final_query, req.org_id, expert_id, 15))
-        retrieve_keys.append(f"{expert_id}_bm25")
-
-    retrieval_results = await asyncio.gather(*retrieve_tasks, return_exceptions=True)
-
-    expert_results = {}
-    for key, result in zip(retrieve_keys, retrieval_results):
-        if isinstance(result, Exception):
-            continue
-        if result:
-            expert_results[key] = result
-
-    if expert_results:
-        fused_chunks = rrf_fuse(expert_results, gate_result, top_n=40)
-    else:
-        fused_chunks = []
-
-    if fused_chunks:
-        fused_chunks = await loop.run_in_executor(_io_pool,
-            rerank, final_query, fused_chunks, 12)
+    loop = asyncio.get_running_loop()
+    
+    full_prompt, answer_model, gate_result, sources, fused_chunks, t_rerank = await _run_retrieval_pipeline(req, loop, start)
 
     query_log_id = None
     try:
@@ -1093,49 +1089,6 @@ async def query_stream(req: QueryRequest):
         )
     except Exception as e:
         print(f"[QueryStream] Logging failed: {e}")
-
-    context = ""
-    sources = []
-    for i, chunk in enumerate(fused_chunks):
-        chunk_content = chunk.content[:1500] if len(chunk.content) > 1500 else chunk.content
-        context += f"\n[Source {i+1} ({chunk.expert_id})]:\n{chunk_content}\n"
-        sources.append({
-            "chunk_id": chunk.chunk_id,
-            "expert_id": chunk.expert_id,
-            "content": chunk.content[:300],
-            "metadata": chunk.metadata,
-        })
-
-    history_block = ""
-    if req.chat_history:
-        from engine.memory import build_memory_context
-        summary, recent = build_memory_context(req.chat_history)
-        if summary:
-            history_block += f"\n--- Conversation Summary ---\n{summary}\n"
-        if recent:
-            history_block += "\n--- Recent Messages ---\n"
-            for m in recent:
-                history_block += f"{m['role'].upper()}: {m['content'][:500]}\n"
-
-    system_prompt = req.system_prompt or (
-        "You are a document Q&A assistant. You MUST answer ONLY using the provided sources. "
-        "Do NOT use your own knowledge. Cite sources using [Source N] notation. "
-        "If sources don't contain the answer, say so clearly. "
-        "Use the conversation history for context about what was previously discussed."
-    )
-    full_prompt = f"{system_prompt}\n{history_block}\n--- Sources ---\n{context}\n\n--- Question ---\n{final_query}"
-
-    # ── MoE model selection + cascade ──
-    if req.model:
-        answer_model = req.model
-    elif max_gate_conf < CASCADE_THRESHOLD:
-        print(f"[QueryStream] Cascade: conf={max_gate_conf:.2f} → escalating to {CASCADE_BIG_MODEL}")
-        answer_model = CASCADE_BIG_MODEL
-    else:
-        top_expert = max(gate_result, key=gate_result.get) if gate_result else "text"
-        expert_cfg = EXPERT_MODEL_MAP.get(top_expert, {})
-        answer_model = expert_cfg.get("model", CASCADE_SMALL_MODEL)
-        print(f"[QueryStream] MoE: top_expert={top_expert} → model={answer_model}")
 
     active_experts = list(gate_result.keys())
 
@@ -1194,7 +1147,7 @@ class OrgConfigUpdate(BaseModel):
     config: dict = {}
 
 @app.get("/config/{org_id}")
-async def get_org_config(org_id: str):
+def get_org_config(org_id: str):
     try:
         from engine.db import get_org_config
         config = get_org_config(org_id)
@@ -1207,7 +1160,7 @@ async def get_org_config(org_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.put("/config/{org_id}")
-async def update_org_config(org_id: str, req: OrgConfigUpdate):
+def update_org_config(org_id: str, req: OrgConfigUpdate):
     try:
         from engine.db import update_org_config
         update_org_config(org_id, req.name, req.config)
@@ -1217,39 +1170,42 @@ async def update_org_config(org_id: str, req: OrgConfigUpdate):
 
 
 def _ingest_background(file_path: str, file_id: str, org_id: str, ext: str):
-    from concurrent.futures import ThreadPoolExecutor, as_completed
-
-    expert_status = {}
-    expert_names = []
-
-    def _update(status, progress, **extra):
-        _ingestion_status[file_id] = {
-            "status": status, "progress": progress,
-            "experts": dict(expert_status), "expert_names": list(expert_names),
-            **extra,
-        }
-
-    _update("parsing", 0)
-
+    from engine.db import tenant_context
+    token = tenant_context.set(org_id)
     try:
-        from engine.db import update_file_status, upsert_chunks
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        parse_tasks = {}
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        expert_status = {}
+        expert_names = []
+
+        def _update(status, progress, **extra):
+            _ingestion_status[file_id] = {
+                "status": status, "progress": progress,
+                "experts": dict(expert_status), "expert_names": list(expert_names),
+                **extra,
+            }
+
+        _update("parsing", 0)
+
+        try:
+            from engine.db import update_file_status, upsert_chunks
+            from concurrent.futures import as_completed
+
+            parse_tasks = {}
             if ext in [".pdf", ".txt", ".md"] and "text" in _experts:
-                parse_tasks["text"] = pool.submit(
+                parse_tasks["text"] = _parse_pool.submit(
                     _experts["text"].parse, file_path, file_id, org_id)
                 expert_names.append("text")
                 expert_status["text"] = {"state": "running", "chunks": 0}
 
             if (ext in [".csv"] or ext == ".pdf") and "table" in _experts:
-                parse_tasks["table"] = pool.submit(
+                parse_tasks["table"] = _parse_pool.submit(
                     _experts["table"].parse, file_path, file_id, org_id)
                 expert_names.append("table")
                 expert_status["table"] = {"state": "running", "chunks": 0}
 
             if (ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"] or ext == ".pdf") and "image" in _experts:
-                parse_tasks["image"] = pool.submit(
+                parse_tasks["image"] = _parse_pool.submit(
                     _experts["image"].parse, file_path, file_id, org_id)
                 expert_names.append("image")
                 expert_status["image"] = {"state": "running", "chunks": 0}
@@ -1279,57 +1235,59 @@ def _ingest_background(file_path: str, file_id: str, org_id: str, ext: str):
                 progress = int(5 + (done_count / total_tasks) * 40)
                 _update("parsing", progress)
 
-        if not all_chunks:
-            update_file_status(file_id, "failed")
-            _update("failed", 100)
-            return
+            if not all_chunks:
+                update_file_status(file_id, "failed")
+                _update("failed", 100)
+                return
 
-        _update("embedding", 50, total_chunks=len(all_chunks))
-        update_file_status(file_id, "embedding", chunk_count=len(all_chunks))
+            _update("embedding", 50, total_chunks=len(all_chunks))
+            update_file_status(file_id, "embedding", chunk_count=len(all_chunks))
 
-        if _embed_model is None:
-            update_file_status(file_id, "failed")
-            _update("failed", 100, error="Embedding model not ready")
-            return
+            if _embed_model is None:
+                update_file_status(file_id, "failed")
+                _update("failed", 100, error="Embedding model not ready")
+                return
 
-        import torch
-        BATCH_SIZE = 8
-        total = len(all_chunks)
-        print(f"[Ingest] Embedding {total} chunks (batch_size={BATCH_SIZE})...")
+            import torch
+            BATCH_SIZE = 8
+            total = len(all_chunks)
+            print(f"[Ingest] Embedding {total} chunks (batch_size={BATCH_SIZE})...")
 
-        all_embeddings = []
-        for batch_start in range(0, total, BATCH_SIZE):
-            batch_end = min(batch_start + BATCH_SIZE, total)
-            batch_texts = [c.content for c in all_chunks[batch_start:batch_end]]
+            all_embeddings = []
+            for batch_start in range(0, total, BATCH_SIZE):
+                batch_end = min(batch_start + BATCH_SIZE, total)
+                batch_texts = [c.content for c in all_chunks[batch_start:batch_end]]
 
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
+                if torch.cuda.is_available():
+                    torch.cuda.empty_cache()
 
-            batch_embs = _embed_model.encode(
-                batch_texts, batch_size=BATCH_SIZE,
-                show_progress_bar=False, normalize_embeddings=True
-            )
-            all_embeddings.extend(batch_embs)
+                batch_embs = _embed_model.encode(
+                    batch_texts, batch_size=BATCH_SIZE,
+                    show_progress_bar=False, normalize_embeddings=True
+                )
+                all_embeddings.extend(batch_embs)
 
-            done_pct = int(50 + (batch_end / total) * 30)
-            _update("embedding", done_pct, total_chunks=total, embedded=batch_end)
-            if batch_end % (BATCH_SIZE * 10) == 0 or batch_end == total:
-                print(f"[Ingest] Embedded {batch_end}/{total}")
+                done_pct = int(50 + (batch_end / total) * 30)
+                _update("embedding", done_pct, total_chunks=total, embedded=batch_end)
+                if batch_end % (BATCH_SIZE * 10) == 0 or batch_end == total:
+                    print(f"[Ingest] Embedded {batch_end}/{total}")
 
-        for chunk, emb in zip(all_chunks, all_embeddings):
-            chunk.embedding = emb
-        print(f"[Ingest] [OK] Embedded all {total} chunks")
+            for chunk, emb in zip(all_chunks, all_embeddings):
+                chunk.embedding = emb
+            print(f"[Ingest] [OK] Embedded all {total} chunks")
 
-        _update("indexing", 85, total_chunks=len(all_chunks))
-        upsert_chunks(all_chunks)
-        update_file_status(file_id, "indexed", chunk_count=len(all_chunks), experts_used=experts_used)
-        _update("indexed", 100, total_chunks=len(all_chunks), experts_used=experts_used)
-        print(f"[Ingest] [OK] {file_id} indexed: {len(all_chunks)} chunks, experts: {experts_used}")
-    except Exception as e:
-        print(f"[Main] [WARN] Background ingestion failed: {e}")
-        import traceback
-        traceback.print_exc()
-        _update("failed", 100, error=str(e))
+            _update("indexing", 85, total_chunks=len(all_chunks))
+            upsert_chunks(all_chunks)
+            update_file_status(file_id, "indexed", chunk_count=len(all_chunks), experts_used=experts_used)
+            _update("indexed", 100, total_chunks=len(all_chunks), experts_used=experts_used)
+            print(f"[Ingest] [OK] {file_id} indexed: {len(all_chunks)} chunks, experts: {experts_used}")
+        except Exception as e:
+            print(f"[Main] [WARN] Background ingestion failed: {e}")
+            import traceback
+            traceback.print_exc()
+            _update("failed", 100, error=str(e))
+    finally:
+        tenant_context.reset(token)
 
 
 @app.post("/ingest/async")
@@ -1354,13 +1312,7 @@ async def ingest_file_async(
 
     _ingestion_status[file_id] = {"status": "queued", "progress": 0}
 
-    import threading
-    t = threading.Thread(
-        target=_ingest_background,
-        args=(file_path, file_id, org_id, ext),
-        daemon=True,
-    )
-    t.start()
+    _ingest_pool.submit(_ingest_background, file_path, file_id, org_id, ext)
 
     return {"status": "queued", "file_id": file_id}
 
@@ -1389,7 +1341,7 @@ async def submit_feedback(req: FeedbackRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/health/pipeline")
-async def pipeline_health(org_id: Optional[str] = None):
+def pipeline_health(org_id: Optional[str] = None):
     health = get_pipeline_health(org_id)
     health["retrain_recommended"] = should_retrain_gate()
     return health
@@ -1400,7 +1352,7 @@ class GuardRequest(BaseModel):
     sources: list[str]
 
 @app.post("/guard")
-async def guard_endpoint(req: GuardRequest):
+def guard_endpoint(req: GuardRequest):
     result = verify_answer(req.answer, req.sources)
     return result
 
@@ -1413,7 +1365,7 @@ class BM25Request(BaseModel):
     file_ids: Optional[list[str]] = None
 
 @app.post("/retrieve/bm25")
-async def retrieve_bm25(req: BM25Request):
+def retrieve_bm25(req: BM25Request):
     try:
         from engine.db import search_bm25
         chunks = search_bm25(req.query, req.org_id, req.expert_id, req.top_k, file_ids=req.file_ids)
@@ -1433,7 +1385,7 @@ async def retrieve_bm25(req: BM25Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/files/{org_id}")
-async def get_org_files(org_id: str):
+def get_org_files(org_id: str):
     """Get all files for an org."""
     try:
         from engine.db import get_files_by_org
@@ -1444,7 +1396,7 @@ async def get_org_files(org_id: str):
 
 
 @app.delete("/files/{org_id}/{file_id}")
-async def delete_org_file(org_id: str, file_id: str):
+def delete_org_file(org_id: str, file_id: str):
     """Delete a file and its chunks."""
     try:
         from engine.db import delete_file
@@ -1456,6 +1408,60 @@ async def delete_org_file(org_id: str, file_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+class ChatSessionCreate(BaseModel):
+    session_id: str
+    org_id: str
+    title: str
+
+class ChatMessageCreate(BaseModel):
+    message_id: str
+    role: str
+    content: str
+    sources: Optional[list] = []
+
+@app.get("/chat/sessions/{org_id}")
+def get_sessions(org_id: str):
+    try:
+        from engine.db import get_chat_sessions
+        return get_chat_sessions(org_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/chat/sessions")
+def create_session(data: ChatSessionCreate):
+    try:
+        from engine.db import create_chat_session
+        create_chat_session(data.session_id, data.org_id, data.title)
+        return {"status": "success", "session_id": data.session_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.delete("/chat/sessions/{org_id}/{session_id}")
+def delete_session(org_id: str, session_id: str):
+    try:
+        from engine.db import delete_chat_session
+        delete_chat_session(session_id, org_id)
+        return {"status": "success"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/chat/sessions/{session_id}/messages")
+def get_messages(session_id: str):
+    try:
+        from engine.db import get_chat_messages
+        return get_chat_messages(session_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/chat/sessions/{session_id}/messages")
+def add_message(session_id: str, data: ChatMessageCreate):
+    try:
+        from engine.db import add_chat_message
+        add_chat_message(data.message_id, session_id, data.role, data.content, data.sources)
+        return {"status": "success", "message_id": data.message_id}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 if __name__ == "__main__":

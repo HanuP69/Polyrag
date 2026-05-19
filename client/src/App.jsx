@@ -1,9 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import "./index.css";
+import { supabase } from "./supabaseClient";
+import Login from "./Login";
 import {
   queryStream, uploadFile, uploadGithub, getIngestStatus,
   submitFeedback, getPipelineHealth, getModels, getConfig,
   updateConfig, getFiles, deleteFile, getDbHealth, forceRetrainGate,
+  getChatSessions, createChatSession, deleteChatSession, getChatMessages, addChatMessage
 } from "./api";
 
 const MarkdownRenderer = ({ content }) => {
@@ -252,6 +255,9 @@ function MainApp({ session }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [files, setFiles] = useState([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [chatSessions, setChatSessions] = useState([]);
+  const [currentSessionId, setCurrentSessionId] = useState(null);
 
   const [wheelOpen, setWheelOpen] = useState(false);
   const [activeWheelIndex, setActiveWheelIndex] = useState(0);
@@ -330,12 +336,25 @@ function MainApp({ session }) {
       }
     }).catch(() => {});
 
+    if (session) {
+      getChatSessions()
+        .then((data) => {
+          if (Array.isArray(data)) {
+            setChatSessions(data);
+          }
+        })
+        .catch((e) => console.error("Failed to load chat sessions:", e));
+    } else {
+      setChatSessions([]);
+      setCurrentSessionId(null);
+    }
+
     const interval = setInterval(() => {
       getPipelineHealth().then(setHealth).catch(() => {});
       getDbHealth().then(setDbHealth).catch(() => {});
     }, 30000);
     return () => clearInterval(interval);
-  }, []);
+  }, [session]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -409,6 +428,54 @@ function MainApp({ session }) {
     try { await updateConfig(newConfig); } catch {}
   };
 
+  const selectSession = useCallback(async (sessionId) => {
+    setCurrentSessionId(sessionId);
+    setLoading(true);
+    try {
+      const msgs = await getChatMessages(sessionId);
+      if (Array.isArray(msgs)) {
+        const formatted = msgs.map(m => ({
+          role: m.role,
+          content: m.content,
+          meta: m.sources && m.sources.length > 0 ? { sources: m.sources } : null,
+          streaming: false,
+          message_id: m.message_id
+        }));
+        setMessages(formatted);
+      }
+    } catch (err) {
+      console.error("Failed to load messages:", err);
+    }
+    setLoading(false);
+  }, []);
+
+  const startNewSession = useCallback(async () => {
+    const newSessionId = crypto.randomUUID();
+    const title = `Session ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+    try {
+      await createChatSession(newSessionId, title);
+      setChatSessions(prev => [{ session_id: newSessionId, title, created_at: new Date().toISOString() }, ...prev]);
+      setCurrentSessionId(newSessionId);
+      setMessages([]);
+    } catch (e) {
+      console.error("Failed to create chat session:", e);
+    }
+  }, []);
+
+  const handleDeleteSession = useCallback(async (sessionId, e) => {
+    e.stopPropagation();
+    try {
+      await deleteChatSession(sessionId);
+      setChatSessions(prev => prev.filter(s => s.session_id !== sessionId));
+      if (currentSessionId === sessionId) {
+        setCurrentSessionId(null);
+        setMessages([]);
+      }
+    } catch (e) {
+      console.error("Failed to delete chat session:", e);
+    }
+  }, [currentSessionId]);
+
   const handleSubmit = useCallback(async (e) => {
     e?.preventDefault();
     if (!input.trim() || loading) return;
@@ -417,8 +484,31 @@ function MainApp({ session }) {
     setInput("");
     setLoading(true);
 
+    const isSessionSavingEnabled = !!session;
+    let activeSessionId = currentSessionId;
+    if (isSessionSavingEnabled && !activeSessionId) {
+      activeSessionId = crypto.randomUUID();
+      const title = userQuery.slice(0, 30) + (userQuery.length > 30 ? "..." : "");
+      try {
+        await createChatSession(activeSessionId, title);
+        setChatSessions(prev => [{ session_id: activeSessionId, title, created_at: new Date().toISOString() }, ...prev]);
+        setCurrentSessionId(activeSessionId);
+      } catch (err) {
+        console.error("Failed to auto-create session:", err);
+      }
+    }
+
     setMessages(prev => [...prev, { role: "user", content: userQuery }]);
     setMessages(prev => [...prev, { role: "assistant", content: "", meta: null, guard: null, latency: null, streaming: true }]);
+
+    if (isSessionSavingEnabled && activeSessionId) {
+      const userMsgId = crypto.randomUUID();
+      try {
+        await addChatMessage(activeSessionId, userMsgId, "user", userQuery, []);
+      } catch (err) {
+        console.error("Failed to save user message:", err);
+      }
+    }
 
     try {
       const chatHistory = messages
@@ -427,14 +517,18 @@ function MainApp({ session }) {
         .map(m => ({ role: m.role, content: m.content.slice(0, 500) }));
 
       const fileIdsToQuery = [...selectedFileIds];
+      let metaData = null;
 
       await queryStream(
         userQuery, "default", model, chatHistory, fileIdsToQuery,
-        (meta) => setMessages(prev => {
-          const msgs = [...prev];
-          msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], meta };
-          return msgs;
-        }),
+        (meta) => {
+          metaData = meta;
+          setMessages(prev => {
+            const msgs = [...prev];
+            msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], meta };
+            return msgs;
+          });
+        },
         (token) => setMessages(prev => {
           const msgs = [...prev];
           const last = { ...msgs[msgs.length - 1] };
@@ -447,21 +541,43 @@ function MainApp({ session }) {
           msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], guard };
           return msgs;
         }),
-        (done) => setMessages(prev => {
-          const msgs = [...prev];
-          msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], latency: done.latency_ms, streaming: false };
-          return msgs;
-        })
+        async (done) => {
+          setMessages(prev => {
+            const msgs = [...prev];
+            const lastMsg = msgs[msgs.length - 1];
+            
+            if (isSessionSavingEnabled && activeSessionId) {
+              const assistantMsgId = crypto.randomUUID();
+              const finalContent = lastMsg.content;
+              const finalSources = metaData?.sources || [];
+              addChatMessage(activeSessionId, assistantMsgId, "assistant", finalContent, finalSources)
+                .catch((err) => console.error("Failed to save assistant message:", err));
+            }
+
+            msgs[msgs.length - 1] = { ...lastMsg, latency: done.latency_ms, streaming: false };
+            return msgs;
+          });
+        }
       );
     } catch (err) {
       setMessages(prev => {
         const msgs = [...prev];
-        msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], content: `Error: ${err.message}`, streaming: false };
+        const last = { ...msgs[msgs.length - 1] };
+        last.content = `Error: ${err.message}`;
+        last.streaming = false;
+        msgs[msgs.length - 1] = last;
+
+        if (isSessionSavingEnabled && activeSessionId) {
+          const assistantMsgId = crypto.randomUUID();
+          addChatMessage(activeSessionId, assistantMsgId, "assistant", `Error: ${err.message}`, [])
+            .catch((err) => console.error("Failed to save assistant error response:", err));
+        }
+
         return msgs;
       });
     }
     setLoading(false);
-  }, [input, loading, selectedFileIds, model, messages]);
+  }, [input, loading, selectedFileIds, model, messages, currentSessionId, session]);
 
   const handleFileUpload = useCallback(async (fileList) => {
     for (const file of fileList) {
@@ -552,6 +668,170 @@ function MainApp({ session }) {
 
   return (
     <div className="app">
+      {/* Sidebar Drawer */}
+      <div className={`chat-history-sidebar ${sidebarOpen ? "open" : ""}`} style={{
+        position: "fixed",
+        top: 0,
+        left: sidebarOpen ? 0 : "-320px",
+        width: "320px",
+        height: "100vh",
+        background: "rgba(244, 238, 223, 0.95)",
+        borderRight: "2px solid var(--border-accent)",
+        boxShadow: "4px 0 24px rgba(0,0,0,0.15)",
+        zIndex: 1000,
+        transition: "left 0.3s cubic-bezier(0.16, 1, 0.3, 1)",
+        display: "flex",
+        flexDirection: "column",
+        padding: "24px 16px",
+        backdropFilter: "blur(8px)"
+      }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "24px" }}>
+          <h2 style={{ fontFamily: "var(--font-header)", fontStyle: "italic", fontSize: "20px", color: "var(--text-primary)" }}>Archival History</h2>
+          <button 
+            onClick={() => setSidebarOpen(false)}
+            style={{ background: "none", border: "none", cursor: "pointer", fontSize: "16px", color: "var(--text-secondary)" }}
+          >
+            ✕
+          </button>
+        </div>
+
+        {session ? (
+          <>
+            <button
+              onClick={startNewSession}
+              style={{
+                width: "100%",
+                padding: "10px",
+                border: "1px solid var(--border-accent)",
+                background: "var(--bg-card)",
+                color: "var(--text-primary)",
+                fontFamily: "var(--font-mono)",
+                fontSize: "12px",
+                cursor: "pointer",
+                marginBottom: "20px",
+                textAlign: "center",
+                textTransform: "uppercase"
+              }}
+            >
+              [ NEW LEDGER SESSION ]
+            </button>
+
+            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: "8px" }}>
+              {chatSessions.length === 0 ? (
+                <div style={{ textAlign: "center", padding: "20px", color: "var(--text-muted)", fontStyle: "italic", fontSize: "12px" }}>
+                  No previous ledgers.
+                </div>
+              ) : (
+                chatSessions.map((sessionItem) => (
+                  <div
+                    key={sessionItem.session_id}
+                    onClick={() => {
+                      selectSession(sessionItem.session_id);
+                      setSidebarOpen(false);
+                    }}
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      padding: "10px 12px",
+                      background: currentSessionId === sessionItem.session_id ? "rgba(184, 122, 45, 0.1)" : "var(--bg-card)",
+                      border: `1px solid ${currentSessionId === sessionItem.session_id ? "var(--accent-amber)" : "var(--border-subtle)"}`,
+                      borderRadius: "var(--radius-sm)",
+                      cursor: "pointer",
+                      transition: "all 0.2s ease"
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0, paddingRight: "8px" }}>
+                      <div style={{
+                        fontWeight: currentSessionId === sessionItem.session_id ? "bold" : "normal",
+                        color: "var(--text-primary)",
+                        fontSize: "13px",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap"
+                      }}>
+                        {sessionItem.title}
+                      </div>
+                      <div style={{ fontSize: "10px", color: "var(--text-muted)", marginTop: "2px", fontFamily: "var(--font-mono)" }}>
+                        {sessionItem.created_at ? new Date(sessionItem.created_at).toLocaleDateString() : ""}
+                      </div>
+                    </div>
+                    <button
+                      onClick={(e) => handleDeleteSession(sessionItem.session_id, e)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: "var(--accent-rose)",
+                        cursor: "pointer",
+                        padding: "4px",
+                        fontSize: "12px"
+                      }}
+                      title="Delete Session"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </>
+        ) : (
+          <div style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            justifyContent: "center",
+            alignItems: "center",
+            padding: "24px 16px",
+            textAlign: "center",
+            background: "rgba(142, 125, 96, 0.03)",
+            border: "1px dashed var(--border-accent)",
+            borderRadius: "4px",
+            margin: "20px 0"
+          }}>
+            <div style={{ fontSize: "12px", color: "var(--text-secondary)", fontFamily: "var(--font-serif)", marginBottom: "20px", lineHeight: "1.6" }}>
+              Archival query logging is offline. Sign in with Google to maintain permanent search history and save your query sessions.
+            </div>
+            <button
+              onClick={() => supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: { redirectTo: window.location.origin }
+              })}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                border: "1px solid var(--border-accent)",
+                background: "var(--bg-card)",
+                color: "var(--text-primary)",
+                fontFamily: "var(--font-mono)",
+                fontSize: "11px",
+                cursor: "pointer",
+                textTransform: "uppercase"
+              }}
+            >
+              [ CONNECT GOOGLE ]
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Sidebar Backdrop Overlay */}
+      {sidebarOpen && (
+        <div 
+          onClick={() => setSidebarOpen(false)}
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100vw",
+            height: "100vh",
+            background: "rgba(0, 0, 0, 0.3)",
+            backdropFilter: "blur(2px)",
+            zIndex: 999
+          }}
+        ></div>
+      )}
+
       <div className="bamboo-forest-environment">
         <svg style={{ position: "absolute", width: 0, height: 0 }}>
           <defs>
@@ -1132,6 +1412,28 @@ function MainApp({ session }) {
 
       <header className="header" style={{ backdropFilter: "blur(4px)", borderBottom: "1px double rgba(184, 122, 45, 0.25)", background: "rgba(250, 246, 238, 0.9)", zIndex: 999, padding: "10px 24px" }}>
         <div className="header-left">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="hamburger-btn"
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              display: "flex",
+              flexDirection: "column",
+              justifyContent: "space-between",
+              width: "20px",
+              height: "14px",
+              padding: 0,
+              marginRight: "14px",
+              zIndex: 1000
+            }}
+            title="Toggle Chat History"
+          >
+            <span style={{ width: "100%", height: "2px", backgroundColor: "var(--text-primary)", transition: "all 0.3s" }}></span>
+            <span style={{ width: "100%", height: "2px", backgroundColor: "var(--text-primary)", transition: "all 0.3s" }}></span>
+            <span style={{ width: "100%", height: "2px", backgroundColor: "var(--text-primary)", transition: "all 0.3s" }}></span>
+          </button>
           <div className="header-logo" style={{ background: "#b53e3e", color: "#ffffff", borderRadius: "2px", width: "24px", height: "24px", display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "Georgia, serif", fontSize: "14px", fontWeight: "bold", boxShadow: "0 0 0 1.5px #b53e3e, 0 1px 3px rgba(0,0,0,0.15)", marginRight: "12px" }} title="理 (Ri) - Reason/Logic Seal">理</div>
           <div>
             <div className="header-title" style={{ fontFamily: "Georgia, serif", fontWeight: 600, letterSpacing: "0.5px", color: "var(--text-primary)" }}>PolyRAG</div>
@@ -1182,6 +1484,52 @@ function MainApp({ session }) {
           >
             [ SETUP SYSTEM ]
           </button>
+          {session ? (
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="header-settings-btn"
+              style={{
+                padding: "5px 12px",
+                border: "1px solid var(--accent-rose)",
+                background: "none",
+                color: "var(--accent-rose)",
+                fontSize: "10px",
+                cursor: "pointer",
+                fontFamily: "Georgia, serif",
+                fontWeight: 600,
+                letterSpacing: "0.5px",
+                textTransform: "uppercase",
+                transition: "all 0.2s ease",
+                marginLeft: "8px"
+              }}
+            >
+              [ SIGN OUT ]
+            </button>
+          ) : (
+            <button
+              onClick={() => supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: { redirectTo: window.location.origin }
+              })}
+              className="header-settings-btn"
+              style={{
+                padding: "5px 12px",
+                border: "1px solid var(--accent-indigo)",
+                background: "none",
+                color: "var(--accent-indigo)",
+                fontSize: "10px",
+                cursor: "pointer",
+                fontFamily: "Georgia, serif",
+                fontWeight: 600,
+                letterSpacing: "0.5px",
+                textTransform: "uppercase",
+                transition: "all 0.2s ease",
+                marginLeft: "8px"
+              }}
+            >
+              [ SIGN IN ]
+            </button>
+          )}
         </div>
       </header>
 
@@ -1836,6 +2184,7 @@ function DbBadge({ label, status }) {
 
 function SourceCards({ sources }) {
   const [expanded, setExpanded] = useState(false);
+  const API_BASE = "http://localhost:3001";
   return (
     <div className="sources-container">
       <button className="sources-toggle" onClick={() => setExpanded(!expanded)}>
@@ -1850,7 +2199,35 @@ function SourceCards({ sources }) {
               <span style={{ color: "var(--text-muted)" }}>sim: {(s.metadata.similarity * 100).toFixed(1)}%</span>
             )}
           </div>
-          {s.content}
+          <div className="source-card-content" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+            {s.expert_id === "image" && s.metadata?.source && (
+              <div className="source-image-wrapper" style={{
+                marginTop: "4px",
+                borderRadius: "8px",
+                overflow: "hidden",
+                border: "1px solid var(--border)",
+                background: "rgba(0, 0, 0, 0.2)",
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                padding: "8px"
+              }}>
+                <img 
+                  src={`${API_BASE}/api/uploads/${s.metadata.source}`} 
+                  alt={s.metadata.source || "source image"} 
+                  style={{
+                    maxWidth: "100%",
+                    maxHeight: "220px",
+                    objectFit: "contain",
+                    borderRadius: "6px",
+                    boxShadow: "0 4px 10px rgba(0,0,0,0.3)"
+                  }} 
+                  onError={(e) => { e.target.parentElement.style.display = 'none'; }}
+                />
+              </div>
+            )}
+            <span style={{ whiteSpace: "pre-wrap" }}>{s.content}</span>
+          </div>
         </div>
       ))}
     </div>
@@ -1858,5 +2235,34 @@ function SourceCards({ sources }) {
 }
 
 export default function App() {
-  return <MainApp session={{ user: { id: "local", email: "local@polyrag" } }} />;
+  const [session, setSession] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setLoading(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg-primary)' }}>
+        <div style={{ fontFamily: "var(--font-mono)", fontSize: "12px", color: "var(--text-muted)" }}>
+          LOADING POLYRAG LEDGER CORE...
+        </div>
+      </div>
+    );
+  }
+
+  return <MainApp session={session} setSession={setSession} />;
 }

@@ -140,21 +140,22 @@ class CodeExpert(BaseExpert):
 
         return chunks
 
-    def embed(self, chunks: List[Chunk]) -> List[List[float]]:
+    def embed(self, chunks: List[Chunk]) -> List[Chunk]:
         """
         Use the shared BGE-M3 model for code embedding.
-        It handles code syntax well enough without needing a specialized code model.
+        Ensure we populate the `embedding` field on each Chunk and return the chunks.
         """
-        # Note: the main.py pipeline handles embedding directly using the shared model,
-        # but if this is called individually, we route to the global embedding.
         from engine.main import _embed_model
-        
+
         if _embed_model is None:
-            return [[0.0] * 1024 for _ in chunks]
-            
+            # Leave chunks unmodified if no model is available
+            return chunks
+
         texts = [c.content for c in chunks]
         embs = _embed_model.encode(texts, batch_size=8, show_progress_bar=False, normalize_embeddings=True)
-        return embs.tolist()
+        for chunk, emb in zip(chunks, embs):
+            chunk.embedding = emb
+        return chunks
 
     def embed_query(self, query: str) -> 'np.ndarray':
         from engine.main import _embed_model
