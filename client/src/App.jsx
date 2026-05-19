@@ -6,7 +6,7 @@ import {
   queryStream, uploadFile, uploadGithub, getIngestStatus,
   submitFeedback, getPipelineHealth, getModels, getConfig,
   updateConfig, getFiles, deleteFile, getDbHealth, forceRetrainGate,
-  getChatSessions, createChatSession, deleteChatSession, getChatMessages, addChatMessage, purgeChatSessions
+  getChatSessions, createChatSession, deleteChatSession, getChatMessages, addChatMessage
 } from "./api";
 
 const MarkdownRenderer = ({ content }) => {
@@ -518,6 +518,7 @@ function MainApp({ session }) {
 
       const fileIdsToQuery = [...selectedFileIds];
       let metaData = null;
+      let accumulatedContent = "";
 
       await queryStream(
         userQuery, "default", model, chatHistory, fileIdsToQuery,
@@ -529,50 +530,47 @@ function MainApp({ session }) {
             return msgs;
           });
         },
-        (token) => setMessages(prev => {
-          const msgs = [...prev];
-          const last = { ...msgs[msgs.length - 1] };
-          last.content += token;
-          msgs[msgs.length - 1] = last;
-          return msgs;
-        }),
+        (token) => {
+          accumulatedContent += token;
+          setMessages(prev => {
+            const msgs = [...prev];
+            const last = { ...msgs[msgs.length - 1] };
+            last.content += token;
+            msgs[msgs.length - 1] = last;
+            return msgs;
+          });
+        },
         (guard) => setMessages(prev => {
           const msgs = [...prev];
           msgs[msgs.length - 1] = { ...msgs[msgs.length - 1], guard };
           return msgs;
         }),
         async (done) => {
+          if (isSessionSavingEnabled && activeSessionId) {
+            const assistantMsgId = crypto.randomUUID();
+            addChatMessage(activeSessionId, assistantMsgId, "assistant", accumulatedContent, metaData?.sources || [])
+              .catch((err) => console.error("Failed to save assistant message:", err));
+          }
           setMessages(prev => {
             const msgs = [...prev];
             const lastMsg = msgs[msgs.length - 1];
-            
-            if (isSessionSavingEnabled && activeSessionId) {
-              const assistantMsgId = crypto.randomUUID();
-              const finalContent = lastMsg.content;
-              const finalSources = metaData?.sources || [];
-              addChatMessage(activeSessionId, assistantMsgId, "assistant", finalContent, finalSources)
-                .catch((err) => console.error("Failed to save assistant message:", err));
-            }
-
             msgs[msgs.length - 1] = { ...lastMsg, latency: done.latency_ms, streaming: false };
             return msgs;
           });
         }
       );
     } catch (err) {
+      if (isSessionSavingEnabled && activeSessionId) {
+        const assistantMsgId = crypto.randomUUID();
+        addChatMessage(activeSessionId, assistantMsgId, "assistant", `Error: ${err.message}`, [])
+          .catch((e) => console.error("Failed to save assistant error response:", e));
+      }
       setMessages(prev => {
         const msgs = [...prev];
         const last = { ...msgs[msgs.length - 1] };
         last.content = `Error: ${err.message}`;
         last.streaming = false;
         msgs[msgs.length - 1] = last;
-
-        if (isSessionSavingEnabled && activeSessionId) {
-          const assistantMsgId = crypto.randomUUID();
-          addChatMessage(activeSessionId, assistantMsgId, "assistant", `Error: ${err.message}`, [])
-            .catch((err) => console.error("Failed to save assistant error response:", err));
-        }
-
         return msgs;
       });
     }
