@@ -6,8 +6,7 @@ import {
   queryStream, uploadFile, uploadGithub, getIngestStatus,
   submitFeedback, getPipelineHealth, getModels, getConfig,
   updateConfig, getFiles, deleteFile, getDbHealth, forceRetrainGate,
-  getChatSessions, createChatSession, deleteChatSession, getChatMessages, addChatMessage
-  , purgeChatSessions
+  getChatSessions, createChatSession, deleteChatSession, getChatMessages, addChatMessage, purgeChatSessions
 } from "./api";
 
 const MarkdownRenderer = ({ content }) => {
@@ -1487,15 +1486,7 @@ function MainApp({ session }) {
           </button>
           {session ? (
             <button
-              onClick={async () => {
-                try {
-                  await purgeChatSessions();
-                } catch (err) {
-                  console.error('Failed to purge sessions before sign-out:', err);
-                } finally {
-                  await supabase.auth.signOut();
-                }
-              }}
+              onClick={() => supabase.auth.signOut()}
               className="header-settings-btn"
               style={{
                 padding: "5px 12px",
