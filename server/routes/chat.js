@@ -35,6 +35,11 @@ router.delete("/api/chat/sessions/:id", async (req, res) => {
   const orgId = req.user?.id || "default";
   const sessionId = req.params.id;
   try {
+    // Ensure session belongs to this org before deleting
+    const owner = await engine.getSessionOwner(orgId, sessionId);
+    if (!owner || owner !== orgId) {
+      return res.status(404).json({ error: "Session not found" });
+    }
     const result = await engine.deleteChatSession(orgId, sessionId);
     res.json(result);
   } catch (err) {
@@ -48,6 +53,11 @@ router.get("/api/chat/sessions/:id/messages", async (req, res) => {
   const orgId = req.user?.id || "default";
   const sessionId = req.params.id;
   try {
+    // Verify session ownership
+    const owner = await engine.getSessionOwner(orgId, sessionId);
+    if (!owner || owner !== orgId) {
+      return res.status(404).json({ error: "Session not found" });
+    }
     const messages = await engine.getChatMessages(sessionId, orgId);
     res.json(messages);
   } catch (err) {
@@ -65,10 +75,27 @@ router.post("/api/chat/sessions/:id/messages", async (req, res) => {
     return res.status(400).json({ error: "message_id, role, and content are required" });
   }
   try {
+    // Verify session ownership before adding a message
+    const owner = await engine.getSessionOwner(orgId, sessionId);
+    if (!owner || owner !== orgId) {
+      return res.status(404).json({ error: "Session not found" });
+    }
     const result = await engine.addChatMessage(sessionId, message_id, role, content, sources, orgId);
     res.json(result);
   } catch (err) {
     console.error("[Chat Routes] Add message failed:", err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Logout: clear all chat sessions for the current org
+router.post("/api/chat/logout", async (req, res) => {
+  const orgId = req.user?.id || "default";
+  try {
+    const deleted = await engine.deleteAllChatSessions(orgId);
+    res.json({ status: "ok", deleted_sessions: deleted });
+  } catch (err) {
+    console.error("[Chat Routes] Logout failed:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

@@ -1453,6 +1453,27 @@ def get_messages(session_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/chat/sessions/{session_id}/owner")
+def get_session_owner(session_id: str):
+    try:
+        from engine.db import get_session_org
+        owner = get_session_org(session_id)
+        return {"org_id": owner}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/chat/logout")
+def logout():
+    try:
+        from engine.db import delete_all_chat_sessions, tenant_context
+        org_id = tenant_context.get()
+        deleted = delete_all_chat_sessions(org_id)
+        return {"deleted_sessions": deleted}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.post("/chat/sessions/{session_id}/messages")
 def add_message(session_id: str, data: ChatMessageCreate):
     try:

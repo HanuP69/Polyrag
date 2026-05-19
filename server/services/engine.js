@@ -174,6 +174,16 @@ async function addChatMessage(sessionId, messageId, role, content, sources = [],
   return data;
 }
 
+async function getSessionOwner(orgId, sessionId) {
+  const { data } = await client.get(`/chat/sessions/${sessionId}/owner`, { headers: { "x-tenant-id": orgId } });
+  return data?.org_id || null;
+}
+
+async function deleteAllChatSessions(orgId) {
+  const { data } = await client.post(`/chat/logout`, {}, { headers: { "x-tenant-id": orgId } });
+  return data?.deleted_sessions || 0;
+}
+
 module.exports = {
   gate,
   retrieve,
@@ -197,4 +207,6 @@ module.exports = {
   deleteChatSession,
   getChatMessages,
   addChatMessage,
+  getSessionOwner,
+  deleteAllChatSessions,
 };

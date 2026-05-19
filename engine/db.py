@@ -20,6 +20,7 @@ tenant_context = contextvars.ContextVar("tenant_context", default="default")
 # In-memory connection pool caches to maintain high performance/concurrency
 _sqlite_conns = {}      # db_path -> connection
 _sqlite_lock = threading.Lock()
+_sqlite_conn_locks = {}  # db_path -> threading.Lock()
 _pg_pools = {}          # tenant db_name -> ThreadedConnectionPool
 _pg_pools_lock = threading.Lock()
 _conn_to_db_name = {}
@@ -65,7 +66,19 @@ def _get_sqlite():
                 conn.execute("PRAGMA synchronous=NORMAL;")
                 _init_sqlite_schema(conn)
                 _sqlite_conns[db_path] = conn
+                # Create a per-database lock so different tenant DBs
+                # don't contend on a single global lock.
+                _sqlite_conn_locks[db_path] = threading.Lock()
     return _sqlite_conns[db_path]
+
+
+def _get_sqlite_lock_for_conn(conn):
+    """Return the per-database lock for a sqlite connection, falling
+    back to the global _sqlite_lock if not found."""
+    for path, c in _sqlite_conns.items():
+        if c is conn:
+            return _sqlite_conn_locks.get(path, _sqlite_lock)
+    return _sqlite_lock
 
 
 def _get_pg():
@@ -392,7 +405,8 @@ def _init_tenant_db_schema(conn):
 def ensure_org(org_id: str, name: str = "default") -> str:
     conn = get_conn()
     if TESTING:
-        with _sqlite_lock:
+        lock = _get_sqlite_lock_for_conn(conn)
+        with lock:
             conn.execute(
                 "INSERT OR IGNORE INTO orgs (org_id, name) VALUES (?, ?)",
                 (org_id, name)
@@ -434,7 +448,8 @@ def update_org_config(org_id: str, name: str, config: dict):
     ensure_org(org_id)
     conn = get_conn()
     if TESTING:
-        with _sqlite_lock:
+        lock = _get_sqlite_lock_for_conn(conn)
+        with lock:
             conn.execute(
                 "UPDATE orgs SET name = ?, config = ? WHERE org_id = ?",
                 (name, json.dumps(config), org_id)
@@ -496,7 +511,8 @@ def get_files_by_org(org_id: str) -> list:
 def delete_file(org_id: str, file_id: str) -> bool:
     conn = get_conn()
     if TESTING:
-        with _sqlite_lock:
+        lock = _get_sqlite_lock_for_conn(conn)
+        with lock:
             row = conn.execute("SELECT file_id FROM files WHERE org_id = ? AND file_id = ?", (org_id, file_id)).fetchone()
             if not row:
                 return False
@@ -522,7 +538,8 @@ def create_file(org_id: str, name: str, file_type: str) -> str:
     conn = get_conn()
     file_id = str(uuid.uuid4())
     if TESTING:
-        with _sqlite_lock:
+        lock = _get_sqlite_lock_for_conn(conn)
+        with lock:
             conn.execute(
                 "INSERT INTO files (file_id, org_id, name, type, status) VALUES (?, ?, ?, ?, 'uploading')",
                 (file_id, org_id, name, file_type)
@@ -553,7 +570,8 @@ def update_file_status(file_id: str, status: str, chunk_count: int = None, exper
             updates.append("experts_used = ?")
             params.append(json.dumps(experts_used))
         params.append(file_id)
-        with _sqlite_lock:
+        lock = _get_sqlite_lock_for_conn(conn)
+        with lock:
             conn.execute(f"UPDATE files SET {', '.join(updates)} WHERE file_id = ?", params)
             conn.commit()
     else:
@@ -609,7 +627,8 @@ def upsert_chunks(chunks: list[Chunk]):
              _serialize_vector(c.embedding))
             for c in valid_chunks
         ]
-        with _sqlite_lock:
+        lock = _get_sqlite_lock_for_conn(conn)
+        with lock:
             conn.executemany(
                 """INSERT OR REPLACE INTO chunks
                    (chunk_id, org_id, file_id, expert_id, content, metadata, embedding)
@@ -899,7 +918,8 @@ def log_query(
     conn = get_conn()
     log_id = str(uuid.uuid4())
     if TESTING:
-        with _sqlite_lock:
+        lock = _get_sqlite_lock_for_conn(conn)
+        with lock:
             conn.execute(
                 """INSERT INTO query_logs (log_id, org_id, query, gate_weights, experts_fired, chunk_ids, latency_ms)
                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
@@ -926,7 +946,8 @@ def save_feedback(query_log_id: str, rating: int, correct_expert: str = None):
     conn = get_conn()
     feedback_id = str(uuid.uuid4())
     if TESTING:
-        with _sqlite_lock:
+        lock = _get_sqlite_lock_for_conn(conn)
+        with lock:
             conn.execute(
                 """INSERT INTO user_feedback (feedback_id, query_log_id, rating, correct_expert)
                    VALUES (?, ?, ?, ?)""",
@@ -970,7 +991,8 @@ def get_chunk_count(org_id: str, expert_id: str = None) -> int:
 def delete_file_chunks(file_id: str):
     conn = get_conn()
     if TESTING:
-        with _sqlite_lock:
+        lock = _get_sqlite_lock_for_conn(conn)
+        with lock:
             conn.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
             conn.commit()
     else:
@@ -1007,7 +1029,8 @@ def create_chat_session(session_id: str, org_id: str, title: str) -> str:
     ensure_org(org_id)
     conn = get_conn()
     if TESTING:
-        with _sqlite_lock:
+        lock = _get_sqlite_lock_for_conn(conn)
+        with lock:
             conn.execute(
                 "INSERT INTO chat_sessions (session_id, org_id, title) VALUES (?, ?, ?)",
                 (session_id, org_id, title)
@@ -1029,7 +1052,8 @@ def create_chat_session(session_id: str, org_id: str, title: str) -> str:
 def delete_chat_session(session_id: str, org_id: str):
     conn = get_conn()
     if TESTING:
-        with _sqlite_lock:
+        lock = _get_sqlite_lock_for_conn(conn)
+        with lock:
             conn.execute("DELETE FROM chat_sessions WHERE session_id = ? AND org_id = ?", (session_id, org_id))
             conn.commit()
     else:
@@ -1074,11 +1098,67 @@ def get_chat_messages(session_id: str) -> list[dict]:
             _return_pg(conn)
 
 
+def get_session_org(session_id: str) -> Optional[str]:
+    """Return the org_id that owns the given session_id, or None if not found.
+
+    This is tenant-aware: `get_conn()` will target the tenant DB identified
+    by the current `tenant_context`. If the session does not belong to the
+    current tenant, None is returned.
+    """
+    conn = get_conn()
+    if TESTING:
+        row = conn.execute("SELECT org_id FROM chat_sessions WHERE session_id = ?", (session_id,)).fetchone()
+        return row["org_id"] if row else None
+    else:
+        try:
+            cur = conn.cursor()
+            cur.execute("SELECT org_id FROM chat_sessions WHERE session_id = %s", (session_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
+        finally:
+            _return_pg(conn)
+
+
+def delete_all_chat_sessions(org_id: str) -> int:
+    """Delete all chat sessions and their messages for an org. Returns number of sessions deleted."""
+    conn = get_conn()
+    deleted = 0
+    if TESTING:
+        lock = _get_sqlite_lock_for_conn(conn)
+        with lock:
+            # Delete messages belonging to sessions for this org, then delete the sessions
+            conn.execute(
+                "DELETE FROM chat_messages WHERE session_id IN (SELECT session_id FROM chat_sessions WHERE org_id = ?)",
+                (org_id,)
+            )
+            cur = conn.execute("SELECT COUNT(*) as cnt FROM chat_sessions WHERE org_id = ?", (org_id,))
+            row = cur.fetchone()
+            deleted = int(row["cnt"] or 0)
+            conn.execute("DELETE FROM chat_sessions WHERE org_id = ?", (org_id,))
+            conn.commit()
+        return deleted
+    else:
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "DELETE FROM chat_messages WHERE session_id IN (SELECT session_id FROM chat_sessions WHERE org_id = %s)",
+                (org_id,)
+            )
+            cur.execute("SELECT COUNT(*) FROM chat_sessions WHERE org_id = %s", (org_id,))
+            deleted = cur.fetchone()[0]
+            cur.execute("DELETE FROM chat_sessions WHERE org_id = %s", (org_id,))
+            conn.commit()
+            return deleted
+        finally:
+            _return_pg(conn)
+
+
 def add_chat_message(message_id: str, session_id: str, role: str, content: str, sources: list) -> str:
     conn = get_conn()
     sources_str = json.dumps(sources)
     if TESTING:
-        with _sqlite_lock:
+        lock = _get_sqlite_lock_for_conn(conn)
+        with lock:
             conn.execute(
                 "INSERT INTO chat_messages (message_id, session_id, role, content, sources) VALUES (?, ?, ?, ?, ?)",
                 (message_id, session_id, role, content, sources_str)

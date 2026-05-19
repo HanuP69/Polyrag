@@ -264,3 +264,17 @@ export async function addChatMessage(sessionId, messageId, role, content, source
   });
   return res.json();
 }
+
+export async function purgeChatSessions() {
+  const headers = await getAuthHeaders({ "Content-Type": "application/json" });
+  const res = await fetch(`${API_BASE}/api/chat/logout`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Purge failed (${res.status}): ${errText}`);
+  }
+  return res.json();
+}
