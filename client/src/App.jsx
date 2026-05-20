@@ -2182,7 +2182,7 @@ function DbBadge({ label, status }) {
 
 function SourceCards({ sources }) {
   const [expanded, setExpanded] = useState(false);
-  const API_BASE = "http://localhost:3001";
+const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
   return (
     <div className="sources-container">
       <button className="sources-toggle" onClick={() => setExpanded(!expanded)}>

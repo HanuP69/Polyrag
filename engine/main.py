@@ -39,7 +39,6 @@ from engine.fuse import rrf_fuse
 from engine.rerank import rerank
 from engine.guard import verify_answer
 from engine.heal import get_pipeline_health, should_retrain_gate
-
 _gate = None
 _experts = {}
 _embed_model = None
@@ -130,7 +129,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:3001", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

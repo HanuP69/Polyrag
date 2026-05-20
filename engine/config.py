@@ -169,7 +169,7 @@ EMBEDDING_DIM = 1024       # BGE-M3 actually outputs 1024-dim
 
 # ──────────────────────────── Database ───────────────────────────────
 # For testing: local PostgreSQL. For prod: Supabase.
-DATABASE_URL = "postgresql://postgres:tan69@localhost:5433/polyrag"
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:tan69@localhost:5433/polyrag")
 
 # ──────────────────────────── Retrieval defaults ─────────────────────
 DEFAULT_TOP_K = 30
