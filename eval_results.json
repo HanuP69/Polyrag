@@ -1,0 +1,60 @@
+{
+  "timestamp": "2026-05-23T03:30:02.195723",
+  "settings": {
+    "use_reranker": true,
+    "use_hyde": true,
+    "enrich_placeholders": true
+  },
+  "subset_ratio": [
+    2,
+    3
+  ],
+  "n_docs": 667,
+  "n_queries": 2103,
+  "overall": {
+    "recall@1": 0.5121,
+    "recall@3": 0.6871,
+    "recall@5": 0.7599,
+    "recall@7": 0.7989
+  },
+  "by_type": {
+    "abstractive": {
+      "recall@1": 0.4705,
+      "recall@3": 0.6566,
+      "recall@5": 0.7352,
+      "recall@7": 0.773
+    },
+    "extractive": {
+      "recall@1": 0.5696,
+      "recall@3": 0.7293,
+      "recall@5": 0.7939,
+      "recall@7": 0.8358
+    }
+  },
+  "by_source": {
+    "text": {
+      "recall@1": 0.5767,
+      "recall@3": 0.7407,
+      "recall@5": 0.808,
+      "recall@7": 0.8481
+    },
+    "text-table": {
+      "recall@1": 0.5243,
+      "recall@3": 0.7476,
+      "recall@5": 0.7961,
+      "recall@7": 0.8252
+    },
+    "text-image": {
+      "recall@1": 0.3781,
+      "recall@3": 0.552,
+      "recall@5": 0.6427,
+      "recall@7": 0.6862
+    },
+    "text-table-image": {
+      "recall@1": 0.4054,
+      "recall@3": 0.6486,
+      "recall@5": 0.723,
+      "recall@7": 0.75
+    }
+  }
+}

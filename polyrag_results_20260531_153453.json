@@ -1,0 +1,30 @@
+{
+  "run_id": "20260531_153453",
+  "config": {
+    "embedder": "offline:BAAI/bge-m3",
+    "reranker": "offline:BAAI/bge-reranker-v2-m3",
+    "captioner": "offline:Salesforce/blip-image-captioning-base",
+    "generator": "online:gemini-2.5-flash-preview-05-20",
+    "n_papers": 50,
+    "n_queries": 200,
+    "n_chunks": 3827
+  },
+  "summary": {
+    "recall@1": 0.725,
+    "recall@3": 0.86,
+    "recall@5": 0.91,
+    "recall@10": 0.945,
+    "mrr@10": 0.8046369047619047,
+    "ndcg@10": 0.8391588972255124
+  },
+  "ablation": {
+    "dense": 0.86,
+    "sparse": 0.78,
+    "hybrid": 0.84
+  },
+  "chunk_counts": {
+    "text": 3131,
+    "table": 367,
+    "image": 329
+  }
+}

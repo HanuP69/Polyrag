@@ -45,6 +45,60 @@ def popen_new_console(args, cwd=None, env=None, shell=False):
         kwargs["creationflags"] = subprocess.CREATE_NEW_CONSOLE
     return subprocess.Popen(args, **kwargs)
 
+def clear_blocked_memory():
+    """Clear legacy python/node processes and unload Ollama models to free up CPU & GPU memory."""
+    print("    Clearing blocked CPU & GPU memory...")
+    current_pid = os.getpid()
+
+    # 1. Kill other Python processes (Windows/Unix) to release BGE-M3 or reranker GPU VRAM / RAM
+    if IS_WINDOWS:
+        try:
+            cmd = f"powershell -Command \"Get-Process -Name python -ErrorAction SilentlyContinue | Where-Object {{ $_.Id -ne {current_pid} }} | Stop-Process -Force\""
+            subprocess.run(cmd, shell=True, capture_output=True)
+            print("      Terminated legacy Python background processes.")
+        except Exception as e:
+            print(f"      Error killing python processes: {e}")
+    else:
+        try:
+            cmd = f"pgrep -f python | grep -v {current_pid} | xargs kill -9 2>/dev/null"
+            subprocess.run(cmd, shell=True)
+            print("      Terminated legacy Python background processes.")
+        except Exception:
+            pass
+
+    # 2. Unload Ollama models
+    import urllib.request
+    import json
+    try:
+        url = "http://localhost:11434"
+        req = urllib.request.Request(f"{url}/api/ps")
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            data = json.loads(resp.read().decode())
+            models = [m["name"] for m in data.get("models", [])]
+        
+        for model in models:
+            req = urllib.request.Request(
+                f"{url}/api/generate",
+                data=json.dumps({"model": model, "keep_alive": 0, "prompt": ""}).encode(),
+                headers={"Content-Type": "application/json"}
+            )
+            with urllib.request.urlopen(req, timeout=2) as resp:
+                pass
+            print(f"      Unloaded Ollama model: {model}")
+    except Exception:
+        pass
+
+    # 3. Clear torch/gc cache locally if imported
+    import gc
+    gc.collect()
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            print("      Local PyTorch VRAM cache cleared.")
+    except Exception:
+        pass
+
 def run():
     print("=" * 60)
     print("  PolyRAG Full-Stack Restarter")
@@ -60,7 +114,7 @@ def run():
         if existing_pythonpath else root_dir
     )
 
-    print("[1/5] Cleaning up ports...")
+    print("[1/5] Cleaning up ports and memory...")
     kill_port(8000)
     kill_port(3001)
     kill_port(5173)
@@ -69,11 +123,12 @@ def run():
             ["powershell", "-Command", "Stop-Process -Name node -Force -ErrorAction SilentlyContinue"],
             capture_output=True
         )
+    clear_blocked_memory()
     time.sleep(2)
 
     print("[2/5] Starting Python Engine (port 8000)...")
     popen_new_console(
-        [sys.executable, "-m", "engine.main"],
+        [sys.executable, "-m", "engine_v4.main"],
         cwd=root_dir,
         env=engine_env,
     )

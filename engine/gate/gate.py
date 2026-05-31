@@ -79,6 +79,62 @@ class Gate:
 
         return {name: float(probs[i]) for i, name in enumerate(self.EXPERT_NAMES)}
 
+    def route_llm(self, query: str) -> dict[str, float]:
+        """
+        Gating using a local LLM (Ollama) as a zero-shot classifier.
+        Uses rich semantic reasoning to determine the ideal expert modality.
+        """
+        import requests
+        import json
+        from engine.config import OLLAMA_BASE_URL
+
+        # Use qwen2.5:7b-instruct-q4_K_M which is active locally and excellent at structured JSON
+        model_name = "qwen2.5:7b-instruct-q4_K_M"
+        
+        prompt = (
+            "You are a routing system for a multi-expert retrieval engine. "
+            "Given a user query, classify which expert category or categories it requires:\n"
+            "- text: queries about prose, description, explanations, summarizes, concepts\n"
+            "- table: queries about statistics, numbers, Q1/Q2, math, comparisons, database rows, tables\n"
+            "- image: queries about diagrams, charts, figures, photos, flowcharts, visual data\n"
+            "- code: queries about programming logic, functions, variables, classes, source code\n\n"
+            "Return ONLY a valid JSON dictionary mapping the experts to a probability score between 0.0 and 1.0 "
+            '(e.g., {"text": 1.0, "table": 0.0, "image": 0.0, "code": 0.0}). '
+            "Do NOT return markdown code blocks, comments, or any other explanation. Only return raw JSON!\n\n"
+            f'Query: "{query}"\n'
+            "JSON:"
+        )
+
+        try:
+            resp = requests.post(
+                f"{OLLAMA_BASE_URL}/api/generate",
+                json={
+                    "model": model_name,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.1,
+                        "num_predict": 128
+                    }
+                },
+                timeout=15
+            )
+            if resp.status_code == 200:
+                raw = resp.json()["response"].strip()
+                # Strip markdown json block tags if the LLM outputted them anyway
+                if raw.startswith("```"):
+                    raw = raw.split("```json")[1].split("```")[0].strip() if "```json" in raw else raw.split("```")[1].split("```")[0].strip()
+                
+                parsed = json.loads(raw)
+                active = {k: float(v) for k, v in parsed.items() if k in self.EXPERT_NAMES and float(v) > 0.15}
+                if active:
+                    return active
+        except Exception as e:
+            # Silently fall back to default embedding classifier
+            pass
+
+        return self.route(query)
+
 
 _gate_instance = None
 _gate_lock = threading.Lock()

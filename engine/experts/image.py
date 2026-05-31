@@ -52,11 +52,24 @@ class ImageExpert(BaseExpert):
         return [chunk]
 
     def _parse_pdf_images(self, file_path: str, file_id: str, org_id: str, config: dict = None) -> list[Chunk]:
+        try:
+            from engine.main import extract_pdf, build_chunks
+            print(f"[ImageExpert] Attempting unified PDF layout parsing on {file_path}")
+            blocks = extract_pdf(file_path, file_id)
+            chunks = build_chunks(blocks, None, org_id, file_id, config)
+            image_chunks = [c for c in chunks if c.expert_id == "image"]
+            if image_chunks:
+                print(f"[ImageExpert] Extracted {len(image_chunks)} image chunks using layout-aware parser.")
+                return image_chunks
+            print("[ImageExpert] Layout-aware parser returned no image chunks, falling back to standard extraction.")
+        except Exception as e:
+            print(f"[ImageExpert] Layout-aware parser failed: {e}. Falling back to standard extraction.")
+
         import fitz
         from concurrent.futures import ThreadPoolExecutor, as_completed
 
         MAX_IMAGES = 30
-        MIN_SIZE = 100
+        MIN_SIZE = 180
         MAX_DIM = 1024
 
         doc = fitz.open(file_path)
@@ -66,6 +79,7 @@ class ImageExpert(BaseExpert):
         for page_num in range(len(doc)):
             page = doc[page_num]
             images = page.get_images(full=True)
+            page_text = page.get_text("text").strip()
 
             for img_info in images:
                 xref = img_info[0]
@@ -99,7 +113,7 @@ class ImageExpert(BaseExpert):
                         img_bytes = buf.getvalue()
 
                     b64 = base64.b64encode(img_bytes).decode("utf-8")
-                    candidates.append((page_num, pix.width, pix.height, b64))
+                    candidates.append((page_num, pix.width, pix.height, b64, page_text))
                 except Exception as e:
                     print(f"[ImageExpert] xref {xref} failed: {e}")
 
@@ -125,19 +139,21 @@ class ImageExpert(BaseExpert):
 
         chunks: list[Chunk] = []
 
-        def caption_one(idx, page_num, w, h, b64):
+        def caption_one(idx, page_num, w, h, b64, page_text):
             cap = self._caption_image(b64, config)
+            if cap and page_text:
+                cap = f"Image Caption: {cap}\n\nContext from Page:\n{page_text}"
             print(f"[ImageExpert] Captioned {idx+1}/{total} (page {page_num+1})")
-            return page_num, w, h, cap
+            return page_num, w, h, b64, cap
 
         with ThreadPoolExecutor(max_workers=1) as pool:
             futures = {
-                pool.submit(caption_one, i, pn, w, h, b64): i
-                for i, (pn, w, h, b64) in enumerate(candidates)
+                pool.submit(caption_one, i, pn, w, h, b64, pt): i
+                for i, (pn, w, h, b64, pt) in enumerate(candidates)
             }
             for future in as_completed(futures):
                 try:
-                    page_num, w, h, caption = future.result()
+                    page_num, w, h, b64, caption = future.result()
                     if not caption:
                         continue
                     chunks.append(Chunk(
@@ -150,6 +166,7 @@ class ImageExpert(BaseExpert):
                             "type": "pdf_image",
                             "width": w,
                             "height": h,
+                            "image_b64": b64,
                         },
                     ))
                 except Exception as e:

@@ -13,7 +13,11 @@ import shutil
 import hashlib
 import asyncio
 import uuid as uuid_lib
-from typing import Optional
+import unicodedata
+import re
+import io
+import base64
+from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 import threading
 from engine.utils import resolve_model
@@ -76,15 +80,9 @@ async def lifespan(app: FastAPI):
         print(f"[Main] [WARN] Database init failed: {e}")
         print("[Main]   Running without database -- some features will be unavailable")
 
-    try:
-        from engine.gate.gate import get_gate
-        _gate = get_gate()
-        print("[Main] [OK] Gate loaded")
-    except FileNotFoundError:
-        print("[Main] [WARN] Gate model not found -- run generate_data.py + train.py first")
-        print("[Main]   Gate will default to 'text' expert for all queries")
-    except Exception as e:
-        print(f"[Main] [WARN] Gate load failed: {e}")
+    # Gate loading disabled for unified flat non-MoE architecture
+    _gate = None
+    print("[Main] Gate loading disabled (Unified Flat RAG Architecture)")
 
     from engine.experts.text import TextExpert
     from engine.experts.table import TableExpert
@@ -202,18 +200,553 @@ async def list_models():
 
 @app.post("/gate")
 async def gate_route(req: GateRequest):
-    if _gate is None:
-        return {"weights": {"text": 1.0}, "raw": {"text": 1.0, "table": 0.0, "image": 0.0}}
-
-    raw = _gate.route_raw(req.query)
-    active = _gate.route(req.query)
-
-    return {"weights": active, "raw": raw}
+    mock_weights = {"text": 0.25, "table": 0.25, "image": 0.25, "code": 0.25}
+    return {"weights": mock_weights, "raw": mock_weights}
 
 
 def _safe_file_path(filename: str) -> str:
     safe_name = f"{uuid_lib.uuid4()}_{os.path.basename(filename)}"
     return os.path.join(UPLOAD_DIR, safe_name)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# UNIFIED PDF LAYOUT PARSER & IMAGE CAPTIONING FALLBACK CHAIN
+# ──────────────────────────────────────────────────────────────────────────────
+
+from dataclasses import dataclass, field
+
+@dataclass
+class IRBlock:
+    block_id:           str
+    pdf_id:             str
+    page_no:            int
+    modality:           str          # 'text' | 'code' | 'image' | 'table'
+    bbox:               tuple
+    block_index:        int
+    raw_content:        str
+    processed_content:  str
+    image_b64:          Optional[str] = None
+    table_json:         Optional[Dict] = None
+    neighboring_blocks: List[str] = field(default_factory=list)
+    metadata:           Dict[str, Any] = field(default_factory=dict)
+
+CODE_KEYWORDS = re.compile(
+    r'\b(def |class |import |return |for |while |if |else|elif |print\(|'
+    r'#include|void |int |float |public |private |function |=>|\{\}|->)'
+)
+SYMBOL_RE = re.compile(r'[=\[\](){};<>!&|^~%]')
+
+def _clean_text(t: str) -> str:
+    t = unicodedata.normalize("NFKD", t)
+    t = re.sub(r'[ \t]+', ' ', t)
+    t = re.sub(r'\n{3,}', '\n\n', t)
+    return t.strip()
+
+def _is_code(text: str, font_name: str = "") -> bool:
+    mono_hints = any(k in font_name.lower() for k in ('mono','courier','consol','code'))
+    kw_hits    = len(CODE_KEYWORDS.findall(text)) >= 2
+    sym_ratio  = len(SYMBOL_RE.findall(text)) / max(len(text), 1)
+    indent     = bool(re.search(r'^    |\t', text, re.M))
+    return mono_hints or (kw_hits and (sym_ratio > 0.05 or indent))
+
+def _img_to_b64(pixmap) -> str:
+    img_bytes = pixmap.tobytes(output="png")
+    return base64.b64encode(img_bytes).decode()
+
+def _table_to_markdown(tbl) -> str:
+    try:
+        rows = tbl.extract()
+        if not rows:
+            return ""
+        header = rows[0]
+        sep    = ["---"] * len(header)
+        body   = rows[1:]
+        def fmt_row(r):
+            return "| " + " | ".join(str(c or "").replace('\n', ' ') for c in r) + " |"
+        lines  = [fmt_row(header), fmt_row(sep)] + [fmt_row(r) for r in body]
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+def _table_to_json(tbl) -> dict:
+    try:
+        rows    = tbl.extract()
+        if not rows:
+            return {}
+        headers = [str(c or "") for c in rows[0]]
+        data    = [[str(c or "") for c in r] for r in rows[1:]]
+        return {"headers": headers, "rows": data}
+    except Exception:
+        return {}
+
+def _table_to_natural(tbl_json: dict) -> str:
+    if not tbl_json:
+        return ""
+    parts = []
+    hdrs  = tbl_json.get("headers", [])
+    for row in tbl_json.get("rows", []):
+        pairs = ", ".join(f"{h}: {v}" for h, v in zip(hdrs, row) if h)
+        if pairs:
+            parts.append(pairs)
+    return ". ".join(parts)
+
+def _approx_tokens(text: str) -> int:
+    return len(text.split())
+
+def _caption_image_optional(b64_image: str, config: dict = None) -> str:
+    prompt = (
+        "Describe this image in detail. Include all visible text, labels, "
+        "data values, diagram elements, and any structural information. "
+        "Be thorough and factual."
+    )
+    # 1. Try Gemini
+    gemini_key = (config or {}).get("geminiApiKey") or GEMINI_API_KEY
+    if gemini_key:
+        try:
+            model_name = "gemini-2.5-flash"
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={gemini_key}"
+            resp = requests.post(
+                url,
+                json={
+                    "contents": [{
+                        "parts": [
+                            {"text": prompt},
+                            {"inline_data": {"mime_type": "image/png", "data": b64_image}}
+                        ]
+                    }],
+                    "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1024}
+                },
+                timeout=30
+            )
+            if resp.status_code == 200:
+                text = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+                if text:
+                    print(f"[Caption] Gemini caption success: {text[:50]}...")
+                    return text
+            else:
+                print(f"[Caption] Gemini caption status {resp.status_code}: {resp.text[:200]}")
+        except Exception as e:
+            print(f"[Caption] Gemini caption error: {e}")
+
+    # 2. Try Ollama Vision
+    try:
+        from engine.config import OLLAMA_VISION_MODEL
+        model_name = OLLAMA_VISION_MODEL or "llava:latest"
+        resp = requests.post(
+            f"{OLLAMA_BASE_URL}/api/generate",
+            json={
+                "model": model_name,
+                "prompt": prompt,
+                "images": [b64_image],
+                "stream": False,
+                "options": {
+                    "temperature": 0.2,
+                    "num_predict": 1024,
+                },
+            },
+            timeout=45,
+        )
+        if resp.status_code == 200:
+            text = resp.json().get("response", "").strip()
+            if text:
+                print(f"[Caption] Ollama caption success: {text[:50]}...")
+                return text
+    except Exception as e:
+        print(f"[Caption] Ollama caption error: {e}")
+
+    return ""
+
+def extract_pdf(pdf_path: str, pdf_id: Optional[str] = None) -> list[IRBlock]:
+    import fitz
+    import uuid
+    from pathlib import Path
+    
+    doc    = fitz.open(pdf_path)
+    pdf_id = pdf_id or Path(pdf_path).stem
+    blocks: list[IRBlock] = []
+    block_idx = 0
+
+    for page_no, page in enumerate(doc):
+        page_blocks: list[IRBlock] = []
+
+        # 1. Text/Code extraction
+        raw_blocks = page.get_text("dict", flags=fitz.TEXT_PRESERVE_WHITESPACE).get("blocks", [])
+        for rb in raw_blocks:
+            if rb.get("type") != 0:
+                continue
+            text = " ".join(
+                span["text"]
+                for line in rb["lines"]
+                for span in line["spans"]
+            )
+            text = _clean_text(text)
+            if not text:
+                continue
+
+            font_name = ""
+            try:
+                font_name = rb["lines"][0]["spans"][0].get("font", "")
+            except Exception:
+                pass
+
+            modality = "code" if _is_code(text, font_name) else "text"
+            bid      = str(uuid.uuid4())
+            blk      = IRBlock(
+                block_id=bid, pdf_id=pdf_id, page_no=page_no,
+                modality=modality, bbox=tuple(rb["bbox"]),
+                block_index=-1, raw_content=text,
+                processed_content=text,
+                metadata={"font": font_name},
+            )
+            page_blocks.append(blk)
+
+        # 2. Image extraction
+        img_list = page.get_images(full=True)
+        for img_info in img_list:
+            xref     = img_info[0]
+            try:
+                pix  = fitz.Pixmap(doc, xref)
+                if pix.n > 4:
+                    pix = fitz.Pixmap(fitz.csRGB, pix)
+                if pix.width < 32 or pix.height < 32:
+                    continue
+                
+                # Resize large images
+                img_bytes = pix.tobytes(output="png")
+                w, h = pix.width, pix.height
+                if pix.width > 800 or pix.height > 800:
+                    from PIL import Image
+                    img = Image.open(io.BytesIO(img_bytes))
+                    img.thumbnail((800, 800), Image.Resampling.LANCZOS)
+                    buf = io.BytesIO()
+                    img.save(buf, format="PNG")
+                    img_bytes = buf.getvalue()
+                    w, h = img.width, img.height
+                b64 = base64.b64encode(img_bytes).decode()
+
+                img_rect  = page.get_image_rects(xref)
+                bbox      = tuple(img_rect[0]) if img_rect else (0,0,0,0)
+                ocr_clip  = page.get_textbox(fitz.Rect(bbox)) if bbox != (0,0,0,0) else ""
+                ocr_text  = _clean_text(ocr_clip)
+
+                bid = str(uuid.uuid4())
+                blk = IRBlock(
+                    block_id=bid, pdf_id=pdf_id, page_no=page_no,
+                    modality="image", bbox=bbox,
+                    block_index=-1, raw_content=ocr_text,
+                    processed_content=ocr_text, image_b64=b64,
+                    metadata={"xref": xref, "w": w, "h": h},
+                )
+                page_blocks.append(blk)
+            except Exception as e:
+                print(f"[Parser] Failed to extract image: {e}")
+                continue
+
+        # 3. Table extraction
+        try:
+            tables = page.find_tables()
+            for tbl in tables.tables:
+                md      = _table_to_markdown(tbl)
+                tj      = _table_to_json(tbl)
+                natural = _table_to_natural(tj)
+                content = f"{md}\n\n{natural}".strip() if natural else md
+                if not content:
+                    continue
+
+                bid = str(uuid.uuid4())
+                blk = IRBlock(
+                    block_id=bid, pdf_id=pdf_id, page_no=page_no,
+                    modality="table", bbox=tuple(tbl.bbox),
+                    block_index=-1, raw_content=md,
+                    processed_content=content, table_json=tj,
+                    metadata={"rows": len(tj.get("rows",[])), "cols": len(tj.get("headers",[]))},
+                )
+                page_blocks.append(blk)
+        except Exception as e:
+            print(f"[Parser] Failed to extract table: {e}")
+            pass
+
+        # Sort all blocks on this page by y0, then x0 to establish reading order
+        page_blocks.sort(key=lambda b: (b.bbox[1], b.bbox[0]))
+
+        # Now, process sorted blocks on the page
+        for local_idx, blk in enumerate(page_blocks):
+            blk.block_index = block_idx
+            block_idx += 1
+
+            # Locate surrounding text paragraphs for images
+            if blk.modality == "image":
+                prec_text = ""
+                for prev_blk in reversed(page_blocks[:local_idx]):
+                    if prev_blk.modality in ("text", "code"):
+                        prec_text = prev_blk.processed_content
+                        break
+                
+                succ_text = ""
+                for next_blk in page_blocks[local_idx+1:]:
+                    if next_blk.modality in ("text", "code"):
+                        succ_text = next_blk.processed_content
+                        break
+
+                fig_captions = []
+                for other_blk in page_blocks:
+                    if other_blk.modality in ("text", "code") and other_blk.block_id != blk.block_id:
+                        iy0, iy1 = blk.bbox[1], blk.bbox[3]
+                        oy0, oy1 = other_blk.bbox[1], other_blk.bbox[3]
+                        v_dist = min(abs(oy0 - iy1), abs(iy0 - oy1))
+                        if v_dist <= 250:
+                            if re.search(r"(?i)\b(fig(ure)?|chart|diagram|table)\b", other_blk.processed_content):
+                                fig_captions.append(other_blk.processed_content)
+
+                blk.metadata["preceding_paragraph"] = prec_text
+                blk.metadata["succeeding_paragraph"] = succ_text
+                blk.metadata["figure_captions"] = fig_captions
+
+            blocks.append(blk)
+
+    doc.close()
+    return blocks
+
+def build_chunks(blocks: list[IRBlock], embed_fn, org_id: str = "default", file_id: str = "", config: Optional[Dict] = None) -> list[Chunk]:
+    chunks: list[Chunk] = []
+    sim_threshold = 0.65
+    CHUNK_MAX_TOKENS = 512
+    
+    from collections import defaultdict
+    page_blocks = defaultdict(list)
+    for b in blocks:
+        page_blocks[b.page_no].append(b)
+        
+    for page_no in sorted(page_blocks.keys()):
+        blks = page_blocks[page_no]
+        i = 0
+        while i < len(blks):
+            b = blks[i]
+            
+            if b.modality == 'image':
+                ocr_text = b.processed_content
+                
+                # Optional captioning using VLLM/Gemini
+                caption = _caption_image_optional(b.image_b64, config=config)
+                
+                prec_text = b.metadata.get("preceding_paragraph", "")
+                succ_text = b.metadata.get("succeeding_paragraph", "")
+                fig_caps = b.metadata.get("figure_captions", [])
+                
+                fig_caps_str = "\n".join(f"- [Figure Caption]: {fc}" for fc in fig_caps) if fig_caps else "- [Figure Caption]: None"
+                
+                repr_parts = []
+                repr_parts.append("[Image OCR Text]:")
+                repr_parts.append(ocr_text if ocr_text else "None")
+                repr_parts.append("")
+                repr_parts.append("[Image Caption]:")
+                repr_parts.append(caption if caption else "None")
+                repr_parts.append("")
+                repr_parts.append("[Nearby Context]:")
+                repr_parts.append(fig_caps_str)
+                repr_parts.append(f"- [Preceding Paragraph]: {prec_text}" if prec_text else "- [Preceding Paragraph]: None")
+                repr_parts.append(f"- [Succeeding Paragraph]: {succ_text}" if succ_text else "- [Succeeding Paragraph]: None")
+                
+                content = "\n".join(repr_parts)
+                
+                meta = dict(b.metadata)
+                meta["page"] = page_no + 1
+                meta["type"] = "pdf_image"
+                meta["image_b64"] = b.image_b64
+                
+                chunks.append(Chunk(
+                    chunk_id=b.block_id,
+                    org_id=org_id,
+                    file_id=file_id,
+                    expert_id="image",
+                    content=content,
+                    metadata=meta
+                ))
+                i += 1
+                
+            elif b.modality == 'table':
+                meta = dict(b.metadata)
+                meta["page"] = page_no + 1
+                meta["type"] = "pdf_table"
+                meta["table_json"] = b.table_json
+                
+                chunks.append(Chunk(
+                    chunk_id=b.block_id,
+                    org_id=org_id,
+                    file_id=file_id,
+                    expert_id="table",
+                    content=b.processed_content,
+                    metadata=meta
+                ))
+                i += 1
+                
+            elif b.modality == 'code':
+                toks = _approx_tokens(b.processed_content)
+                meta = dict(b.metadata)
+                meta["page"] = page_no + 1
+                meta["type"] = "code"
+                
+                if toks <= CHUNK_MAX_TOKENS:
+                    chunks.append(Chunk(
+                        chunk_id=b.block_id,
+                        org_id=org_id,
+                        file_id=file_id,
+                        expert_id="code",
+                        content=b.processed_content,
+                        metadata=meta
+                    ))
+                else: 
+                    lines = b.processed_content.split('\n')
+                    sub_chunks = []
+                    curr_lines = []
+                    curr_toks = 0
+                    for line in lines:
+                        line_toks = _approx_tokens(line)
+                        if curr_toks + line_toks > CHUNK_MAX_TOKENS:
+                            if curr_lines:
+                                sub_chunks.append("\n".join(curr_lines))
+                            curr_lines = [line]
+                            curr_toks = line_toks
+                        else:
+                            curr_lines.append(line)
+                            curr_toks += line_toks
+                    if curr_lines:
+                        sub_chunks.append("\n".join(curr_lines))
+                        
+                    for s_idx, sc_text in enumerate(sub_chunks):
+                        sub_meta = dict(meta)
+                        sub_meta["split_index"] = s_idx
+                        chunks.append(Chunk(
+                            chunk_id=f"{b.block_id}_sub_{s_idx}",
+                            org_id=org_id,
+                            file_id=file_id,
+                            expert_id="code",
+                            content=sc_text,
+                            metadata=sub_meta
+                        ))
+                i += 1
+                
+            elif b.modality == 'text':
+                text_seq = []
+                j = i
+                while j < len(blks) and blks[j].modality == 'text':
+                    text_seq.append(blks[j])
+                    j += 1
+                
+                texts = [tb.processed_content for tb in text_seq]
+                embeddings = None
+                if texts and embed_fn:
+                    try:
+                        embeddings = embed_fn(texts)
+                        norms = np.linalg.norm(embeddings, axis=1, keepdims=True)
+                        norms[norms == 0] = 1e-12
+                        embeddings = embeddings / norms
+                    except Exception as e:
+                        print(f"Error embedding text blocks for semantic merging: {e}")
+                        embeddings = None
+                
+                curr_chunk_text = ""
+                curr_chunk_blocks = []
+                curr_chunk_toks = 0
+                
+                for idx, tb in enumerate(text_seq):
+                    tb_toks = _approx_tokens(tb.processed_content)
+                    
+                    if tb_toks > CHUNK_MAX_TOKENS:
+                        if curr_chunk_blocks:
+                            meta = {"page": page_no + 1, "type": "text"}
+                            chunks.append(Chunk(
+                                chunk_id=curr_chunk_blocks[0].block_id,
+                                org_id=org_id,
+                                file_id=file_id,
+                                expert_id="text",
+                                content=curr_chunk_text.strip(),
+                                metadata=meta
+                            ))
+                            curr_chunk_text = ""
+                            curr_chunk_blocks = []
+                            curr_chunk_toks = 0
+                        
+                        sentences = re.split(r'(?<=[.!?])\s+', tb.processed_content)
+                        curr_split_text = ""
+                        curr_split_toks = 0
+                        split_idx = 0
+                        
+                        for sent in sentences:
+                            sent_toks = _approx_tokens(sent)
+                            if curr_split_toks + sent_toks > CHUNK_MAX_TOKENS:
+                                if curr_split_text:
+                                    meta = {"page": page_no + 1, "type": "text", "split": True, "split_index": split_idx}
+                                    chunks.append(Chunk(
+                                        chunk_id=f"{tb.block_id}_split_{split_idx}",
+                                        org_id=org_id,
+                                        file_id=file_id,
+                                        expert_id="text",
+                                        content=curr_split_text.strip(),
+                                        metadata=meta
+                                    ))
+                                    split_idx += 1
+                                curr_split_text = sent + " "
+                                curr_split_toks = sent_toks
+                            else:
+                                curr_split_text += sent + " "
+                                curr_split_toks += sent_toks
+                        
+                        if curr_split_text:
+                            meta = {"page": page_no + 1, "type": "text", "split": True, "split_index": split_idx}
+                            chunks.append(Chunk(
+                                chunk_id=f"{tb.block_id}_split_{split_idx}",
+                                org_id=org_id,
+                                file_id=file_id,
+                                expert_id="text",
+                                content=curr_split_text.strip(),
+                                metadata=meta
+                            ))
+                        continue
+                    
+                    if not curr_chunk_blocks:
+                        curr_chunk_text = tb.processed_content + "\n\n"
+                        curr_chunk_blocks = [tb]
+                        curr_chunk_toks = tb_toks
+                    else:
+                        similarity = 0.0
+                        if (embeddings is not None and idx > 0 and 
+                            idx < len(embeddings) and embeddings[idx] is not None and embeddings[idx-1] is not None):
+                            v1 = embeddings[idx-1]
+                            v2 = embeddings[idx]
+                            similarity = float(np.dot(v1, v2))
+                            
+                        if similarity >= sim_threshold and (curr_chunk_toks + tb_toks <= CHUNK_MAX_TOKENS):
+                            curr_chunk_text += tb.processed_content + "\n\n"
+                            curr_chunk_blocks.append(tb)
+                            curr_chunk_toks += tb_toks
+                        else:
+                            meta = {"page": page_no + 1, "type": "text"}
+                            chunks.append(Chunk(
+                                chunk_id=curr_chunk_blocks[0].block_id,
+                                org_id=org_id,
+                                file_id=file_id,
+                                expert_id="text",
+                                content=curr_chunk_text.strip(),
+                                metadata=meta
+                            ))
+                            curr_chunk_text = tb.processed_content + "\n\n"
+                            curr_chunk_blocks = [tb]
+                            curr_chunk_toks = tb_toks
+                            
+                if curr_chunk_blocks:
+                    meta = {"page": page_no + 1, "type": "text"}
+                    chunks.append(Chunk(
+                        chunk_id=curr_chunk_blocks[0].block_id,
+                        org_id=org_id,
+                        file_id=file_id,
+                        expert_id="text",
+                        content=curr_chunk_text.strip(),
+                        metadata=meta
+                    ))
+                i = j
+                
+    return chunks
 
 
 @app.post("/parse")
@@ -234,33 +767,58 @@ async def parse_file(
     all_chunks = []
     experts_used = []
 
-    if ext in [".pdf", ".txt", ".md"] and "text" in _experts:
-        chunks = _experts["text"].parse(file_path, file_id=file_id, org_id=org_id)
-        all_chunks.extend(chunks)
-        if chunks:
-            experts_used.append("text")
+    if ext == ".pdf":
+        try:
+            print(f"[Parse] Parsing PDF with layout-aware unified parser: {file_path}")
+            embed_fn = None
+            if _embed_model is not None:
+                embed_fn = lambda texts: _embed_model.encode(texts, show_progress_bar=False)
+            
+            cfg = None
+            try:
+                from engine.db import get_org_config
+                cfg_data = get_org_config(org_id)
+                if cfg_data:
+                    cfg = cfg_data.get("config")
+            except Exception:
+                pass
 
-    if ext in [".csv"] and "table" in _experts:
-        chunks = _experts["table"].parse(file_path, file_id=file_id, org_id=org_id)
-        all_chunks.extend(chunks)
-        if chunks:
-            experts_used.append("table")
-    if ext == ".pdf" and "table" in _experts:
-        chunks = _experts["table"].parse(file_path, file_id=file_id, org_id=org_id)
-        all_chunks.extend(chunks)
-        if chunks and "table" not in experts_used:
-            experts_used.append("table")
+            blocks = extract_pdf(file_path, file_id)
+            all_chunks = build_chunks(blocks, embed_fn, org_id, file_id, config=cfg)
+            experts_used = list(set(c.expert_id for c in all_chunks))
+        except Exception as e:
+            print(f"[Parse] [WARN] Layout-aware unified parser failed: {e}. Falling back to modular experts.")
+            all_chunks = []
+            experts_used = []
 
-    if ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"] and "image" in _experts:
-        chunks = _experts["image"].parse(file_path, file_id=file_id, org_id=org_id)
-        all_chunks.extend(chunks)
-        if chunks:
-            experts_used.append("image")
-    if ext == ".pdf" and "image" in _experts:
-        chunks = _experts["image"].parse(file_path, file_id=file_id, org_id=org_id)
-        all_chunks.extend(chunks)
-        if chunks and "image" not in experts_used:
-            experts_used.append("image")
+    if not all_chunks:
+        if ext in [".pdf", ".txt", ".md"] and "text" in _experts:
+            chunks = _experts["text"].parse(file_path, file_id=file_id, org_id=org_id)
+            all_chunks.extend(chunks)
+            if chunks:
+                experts_used.append("text")
+
+        if ext in [".csv"] and "table" in _experts:
+            chunks = _experts["table"].parse(file_path, file_id=file_id, org_id=org_id)
+            all_chunks.extend(chunks)
+            if chunks:
+                experts_used.append("table")
+        if ext == ".pdf" and "table" in _experts:
+            chunks = _experts["table"].parse(file_path, file_id=file_id, org_id=org_id)
+            all_chunks.extend(chunks)
+            if chunks and "table" not in experts_used:
+                experts_used.append("table")
+
+        if ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"] and "image" in _experts:
+            chunks = _experts["image"].parse(file_path, file_id=file_id, org_id=org_id)
+            all_chunks.extend(chunks)
+            if chunks:
+                experts_used.append("image")
+        if ext == ".pdf" and "image" in _experts:
+            chunks = _experts["image"].parse(file_path, file_id=file_id, org_id=org_id)
+            all_chunks.extend(chunks)
+            if chunks and "image" not in experts_used:
+                experts_used.append("image")
 
     return {
         "file_path": file_path,
@@ -426,34 +984,59 @@ async def ingest_file(
         file_id = create_file(org_id, file.filename, ext.lstrip("."))
         update_file_status(file_id, "parsing")
 
-    parse_tasks = []
-    experts_to_check = []
-
-    if ext in [".pdf", ".txt", ".md"] and "text" in _experts:
-        parse_tasks.append(asyncio.to_thread(_experts["text"].parse, file_path, file_id, org_id))
-        experts_to_check.append("text")
-
-    if (ext in [".csv"] or ext == ".pdf") and "table" in _experts:
-        parse_tasks.append(asyncio.to_thread(_experts["table"].parse, file_path, file_id, org_id))
-        experts_to_check.append("table")
-
-    if (ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"] or ext == ".pdf") and "image" in _experts:
-        parse_tasks.append(asyncio.to_thread(_experts["image"].parse, file_path, file_id, org_id))
-        experts_to_check.append("image")
-
-    parse_results = await asyncio.gather(*parse_tasks, return_exceptions=True)
-
     all_chunks = []
     experts_used = []
 
-    for i, result in enumerate(parse_results):
-        expert_id = experts_to_check[i]
-        if isinstance(result, Exception):
-            print(f"[Ingest] [WARN] Expert {expert_id} failed: {result}")
-            continue
-        if result:
-            all_chunks.extend(result)
-            experts_used.append(expert_id)
+    if ext == ".pdf":
+        try:
+            print(f"[Ingest] Parsing PDF with layout-aware unified parser: {file_path}")
+            embed_fn = None
+            if _embed_model is not None:
+                embed_fn = lambda texts: _embed_model.encode(texts, show_progress_bar=False)
+            
+            cfg = None
+            try:
+                from engine.db import get_org_config
+                cfg_data = get_org_config(org_id)
+                if cfg_data:
+                    cfg = cfg_data.get("config")
+            except Exception:
+                pass
+
+            blocks = extract_pdf(file_path, file_id)
+            all_chunks = build_chunks(blocks, embed_fn, org_id, file_id, config=cfg)
+            experts_used = list(set(c.expert_id for c in all_chunks))
+        except Exception as e:
+            print(f"[Ingest] [WARN] Layout-aware unified parser failed: {e}. Falling back to modular experts.")
+            all_chunks = []
+            experts_used = []
+
+    if not all_chunks:
+        parse_tasks = []
+        experts_to_check = []
+
+        if ext in [".pdf", ".txt", ".md"] and "text" in _experts:
+            parse_tasks.append(asyncio.to_thread(_experts["text"].parse, file_path, file_id, org_id))
+            experts_to_check.append("text")
+
+        if (ext in [".csv"] or ext == ".pdf") and "table" in _experts:
+            parse_tasks.append(asyncio.to_thread(_experts["table"].parse, file_path, file_id, org_id))
+            experts_to_check.append("table")
+
+        if (ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"] or ext == ".pdf") and "image" in _experts:
+            parse_tasks.append(asyncio.to_thread(_experts["image"].parse, file_path, file_id, org_id))
+            experts_to_check.append("image")
+
+        parse_results = await asyncio.gather(*parse_tasks, return_exceptions=True)
+
+        for i, result in enumerate(parse_results):
+            expert_id = experts_to_check[i]
+            if isinstance(result, Exception):
+                print(f"[Ingest] [WARN] Expert {expert_id} failed: {result}")
+                continue
+            if result:
+                all_chunks.extend(result)
+                experts_used.append(expert_id)
 
     if not all_chunks:
         if db_available:
@@ -655,89 +1238,48 @@ def get_file(file_id: str):
 
 
 async def _run_retrieval_pipeline(req: QueryRequest, loop, start: float):
-    gate_task = loop.run_in_executor(_cpu_pool,
-        lambda: _gate.route(req.query) if _gate else {"text": 1.0})
-    gate_raw_task = loop.run_in_executor(_cpu_pool,
-        lambda: _gate.route_raw(req.query) if _gate else {"text": 1.0, "table": 0.0, "image": 0.0})
-
-    gate_result, gate_raw = await asyncio.gather(gate_task, gate_raw_task)
+    # Bypass gate routing model execution completely
+    gate_result = {"text": 0.25, "table": 0.25, "image": 0.25, "code": 0.25}
+    gate_raw = {"text": 0.25, "table": 0.25, "image": 0.25, "code": 0.25}
 
     final_query = req.query
-    max_gate_conf = max(gate_raw.values()) if gate_raw else 0
+    max_gate_conf = 0.25
 
     t_gate = time.time()
-    print(f"[Query] Gate: {int((t_gate-start)*1000)}ms (conf={max_gate_conf:.2f}, experts={list(gate_result.keys())})")
+    print(f"[Query] Gate (bypassed, mock equal weights): {int((t_gate-start)*1000)}ms (conf={max_gate_conf:.2f})")
 
     query_vec = await loop.run_in_executor(_cpu_pool, _cached_embed_query, final_query)
 
     t_embed = time.time()
     print(f"[Query] Embed: {int((t_embed-t_gate)*1000)}ms")
 
-    from engine.db import search_bm25
-    retrieve_tasks = []
-    retrieve_keys = []
+    # Unified Flat RAG: Query all chunks globally in parallel
+    from engine.db import search_chunks_all, search_bm25_all
+    
+    dense_task = loop.run_in_executor(_io_pool,
+        search_chunks_all, query_vec, req.org_id, 40, req.file_ids)
+    sparse_task = loop.run_in_executor(_io_pool,
+        search_bm25_all, final_query, req.org_id, 20, req.file_ids)
 
-    for expert_id, weight in gate_result.items():
-        if expert_id not in _experts:
-            continue
-        expert = _experts[expert_id]
-        if req.file_ids:
-            from engine.db import search_chunks as _sc
-            retrieve_tasks.append(loop.run_in_executor(_io_pool,
-                _sc, query_vec, req.org_id, expert_id, req.top_k, req.file_ids))
-        else:
-            retrieve_tasks.append(loop.run_in_executor(_io_pool,
-                expert.retrieve, query_vec, req.org_id, req.top_k))
-        retrieve_keys.append(expert_id)
-        retrieve_tasks.append(loop.run_in_executor(_io_pool,
-            search_bm25, final_query, req.org_id, expert_id, 15))
-        retrieve_keys.append(f"{expert_id}_bm25")
-
-    retrieval_results = await asyncio.gather(*retrieve_tasks, return_exceptions=True)
-
-    expert_results = {}
-    for key, result in zip(retrieve_keys, retrieval_results):
-        if isinstance(result, Exception):
-            print(f"[Query] [WARN] {key} failed: {result}")
-            continue
-        if result:
-            expert_results[key] = result
+    dense_chunks, sparse_chunks = await asyncio.gather(dense_task, sparse_task)
 
     t_retrieve = time.time()
-    for key, chunks in expert_results.items():
-        top_sim = max((c.metadata.get("similarity", c.metadata.get("bm25_score", 0)) for c in chunks), default=0)
-        print(f"[Query] {key}: {len(chunks)} chunks (top_sim={top_sim:.3f})")
-    print(f"[Query] Parallel retrieve ({len(retrieve_tasks)} tasks): {int((t_retrieve-t_embed)*1000)}ms")
+    print(f"[Query] Flat retrieve: {int((t_retrieve-t_embed)*1000)}ms (dense={len(dense_chunks or [])}, sparse={len(sparse_chunks or [])})")
 
-    if expert_results:
-        all_sims = [c.metadata.get("similarity", c.metadata.get("bm25_score", 0))
-                    for chunks in expert_results.values() for c in chunks]
-        avg_sim = sum(all_sims) / len(all_sims) if all_sims else 0
-
-        if avg_sim < 0.3 and len(gate_result) < len(_experts):
-            print(f"[Query] Fallback cascade (avg_sim={avg_sim:.3f})")
-            fallback_tasks = []
-            fallback_keys = []
-            for expert_id, expert in _experts.items():
-                if expert_id not in gate_result:
-                    fallback_tasks.append(loop.run_in_executor(_io_pool,
-                        expert.retrieve, query_vec, req.org_id, req.top_k))
-                    fallback_keys.append(f"{expert_id}_fallback")
-
-            fallback_results = await asyncio.gather(*fallback_tasks, return_exceptions=True)
-            for key, result in zip(fallback_keys, fallback_results):
-                if not isinstance(result, Exception) and result:
-                    expert_results[key] = result
-                    gate_result[key.replace("_fallback", "")] = 0.3
-
-    if expert_results:
-        fused_chunks = rrf_fuse(expert_results, gate_result, top_n=40)
+    # Perform RRF fusion on global lists with equal weights (weights=None)
+    if dense_chunks or sparse_chunks:
+        fused_chunks = rrf_fuse(
+            {"global_dense": dense_chunks, "global_sparse": sparse_chunks},
+            weights=None,
+            top_n=40
+        )
     else:
         fused_chunks = []
 
+    # Cross-Encoder reranking without modality boosts (gate_weights=None)
     if fused_chunks:
         fused_chunks = await loop.run_in_executor(_cpu_pool,
-            rerank, final_query, fused_chunks, 12)
+            rerank, final_query, fused_chunks, 12, None)
 
     t_rerank = time.time()
     print(f"[Query] Fuse+Rerank: {int((t_rerank-t_retrieve)*1000)}ms")
@@ -753,6 +1295,15 @@ async def _run_retrieval_pipeline(req: QueryRequest, loop, start: float):
             "content": chunk.content[:1000],
             "metadata": chunk.metadata,
         })
+
+    # Extract unique base64 images from retrieved metadata
+    image_b64s = []
+    for chunk in fused_chunks:
+        b64 = chunk.metadata.get("image_b64")
+        if b64 and b64 not in image_b64s:
+            image_b64s.append(b64)
+            if len(image_b64s) >= 5:
+                break
 
     history_block = ""
     if req.chat_history:
@@ -775,16 +1326,11 @@ async def _run_retrieval_pipeline(req: QueryRequest, loop, start: float):
 
     if req.model:
         answer_model = req.model
-    elif max_gate_conf < CASCADE_THRESHOLD:
-        print(f"[Query] Cascade: conf={max_gate_conf:.2f} < {CASCADE_THRESHOLD}, escalating to {CASCADE_BIG_MODEL}")
-        answer_model = CASCADE_BIG_MODEL
     else:
-        top_expert = max(gate_result, key=gate_result.get) if gate_result else "text"
-        expert_cfg = EXPERT_MODEL_MAP.get(top_expert, {})
-        answer_model = expert_cfg.get("model", CASCADE_SMALL_MODEL)
-        print(f"[Query] MoE routing: top_expert={top_expert} → model={answer_model}")
+        # Default to correct provider based on TESTING mode
+        answer_model = CASCADE_SMALL_MODEL if TESTING else CASCADE_BIG_MODEL
 
-    return full_prompt, answer_model, gate_result, sources, fused_chunks, t_rerank
+    return full_prompt, answer_model, gate_result, sources, fused_chunks, t_rerank, image_b64s
 
 @app.post("/query")
 async def query_pipeline(req: QueryRequest):
@@ -799,12 +1345,12 @@ async def query_pipeline(req: QueryRequest):
 
     loop = asyncio.get_running_loop()
     
-    full_prompt, answer_model, gate_result, sources, fused_chunks, t_rerank = await _run_retrieval_pipeline(req, loop, start)
+    full_prompt, answer_model, gate_result, sources, fused_chunks, t_rerank, image_b64s = await _run_retrieval_pipeline(req, loop, start)
 
     # Record which experts were fired for this query (used in logging and response)
     fired_experts = list(gate_result.keys()) if gate_result else []
 
-    answer = await _generate_answer(full_prompt, req.query, answer_model)
+    answer = await _generate_answer(full_prompt, req.query, answer_model, image_b64s)
 
     t_llm = time.time()
     print(f"[Query] LLM ({answer_model}): {int((t_llm-t_rerank)*1000)}ms")
@@ -856,31 +1402,35 @@ async def query_pipeline(req: QueryRequest):
     return result
 
 
-async def _generate_answer(prompt: str, query: str, model: Optional[str] = None) -> str:
+async def _generate_answer(prompt: str, query: str, model: Optional[str] = None, image_b64s: Optional[list[str]] = None) -> str:
     provider, api_name = _resolve_model(model)
     loop = asyncio.get_event_loop()
     if provider == "ollama":
-        return await loop.run_in_executor(_io_pool, _generate_ollama, prompt, api_name)
+        return await loop.run_in_executor(_io_pool, _generate_ollama, prompt, api_name, image_b64s)
     elif provider == "gemini":
-        return await loop.run_in_executor(_io_pool, _generate_gemini, prompt, api_name)
+        return await loop.run_in_executor(_io_pool, _generate_gemini, prompt, api_name, image_b64s)
     else:
         return await loop.run_in_executor(_io_pool, _generate_groq, prompt, api_name)
 
 
-def _generate_ollama(prompt: str, model: Optional[str] = None) -> str:
+def _generate_ollama(prompt: str, model: Optional[str] = None, image_b64s: Optional[list[str]] = None) -> str:
     try:
+        payload = {
+            "model": model or OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": False,
+            "keep_alive": 0,   # evict from VRAM immediately after response
+            "options": {
+                "temperature": 0.3,
+                "num_predict": 2048,
+            }
+        }
+        if image_b64s:
+            payload["images"] = image_b64s
+
         response = requests.post(
             f"{OLLAMA_BASE_URL}/api/generate",
-            json={
-                "model": model or OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "keep_alive": 0,   # evict from VRAM immediately after response
-                "options": {
-                    "temperature": 0.3,
-                    "num_predict": 2048,
-                }
-            },
+            json=payload,
             timeout=180
         )
         response.raise_for_status()
@@ -908,23 +1458,29 @@ def _generate_groq(prompt: str, model: Optional[str] = None) -> str:
         response.raise_for_status()
         return response.json()["choices"][0]["message"]["content"]
     except Exception as e:
+        if 'response' in locals() and hasattr(response, 'text'):
+            return f"[LLM Error] Failed to generate answer: {e} | Response: {response.text}"
         return f"[LLM Error] Failed to generate answer: {e}"
 
 
-def _stream_ollama(prompt: str, model: Optional[str] = None):
+def _stream_ollama(prompt: str, model: Optional[str] = None, image_b64s: Optional[list[str]] = None):
     try:
+        payload = {
+            "model": model or OLLAMA_MODEL,
+            "prompt": prompt,
+            "stream": True,
+            "keep_alive": 0,   # evict from VRAM after stream completes
+            "options": {
+                "temperature": 0.3,
+                "num_predict": 2048,
+            },
+        }
+        if image_b64s:
+            payload["images"] = image_b64s
+
         response = requests.post(
             f"{OLLAMA_BASE_URL}/api/generate",
-            json={
-                "model": model or OLLAMA_MODEL,
-                "prompt": prompt,
-                "stream": True,
-                "keep_alive": 0,   # evict from VRAM after stream completes
-                "options": {
-                    "temperature": 0.3,
-                    "num_predict": 2048,
-                },
-            },
+            json=payload,
             timeout=180,
             stream=True,
         )
@@ -941,13 +1497,17 @@ def _stream_ollama(prompt: str, model: Optional[str] = None):
         yield f"[LLM Error] {e}"
 
 
-def _generate_gemini(prompt: str, model: str = "gemma-3-27b-it") -> str:
+def _generate_gemini(prompt: str, model: str = "gemma-3-27b-it", image_b64s: Optional[list[str]] = None) -> str:
     try:
         url = f"{GEMINI_BASE_URL}/models/{model}:generateContent?key={GEMINI_API_KEY}"
+        parts = [{"text": prompt}]
+        if image_b64s:
+            for b64 in image_b64s:
+                parts.append({"inline_data": {"mime_type": "image/png", "data": b64}})
         response = requests.post(
             url,
             json={
-                "contents": [{"parts": [{"text": prompt}]}],
+                "contents": [{"parts": parts}],
                 "generationConfig": {
                     "temperature": 0.3,
                     "maxOutputTokens": 2048,
@@ -962,13 +1522,17 @@ def _generate_gemini(prompt: str, model: str = "gemma-3-27b-it") -> str:
         return f"[Gemini Error] {e}"
 
 
-def _stream_gemini(prompt: str, model: str = "gemma-3-27b-it"):
+def _stream_gemini(prompt: str, model: str = "gemma-3-27b-it", image_b64s: Optional[list[str]] = None):
     try:
         url = f"{GEMINI_BASE_URL}/models/{model}:streamGenerateContent?alt=sse&key={GEMINI_API_KEY}"
+        parts = [{"text": prompt}]
+        if image_b64s:
+            for b64 in image_b64s:
+                parts.append({"inline_data": {"mime_type": "image/png", "data": b64}})
         response = requests.post(
             url,
             json={
-                "contents": [{"parts": [{"text": prompt}]}],
+                "contents": [{"parts": parts}],
                 "generationConfig": {
                     "temperature": 0.3,
                     "maxOutputTokens": 2048,
@@ -1073,7 +1637,7 @@ async def query_stream(req: QueryRequest):
     start = time.time()
     loop = asyncio.get_running_loop()
     
-    full_prompt, answer_model, gate_result, sources, fused_chunks, t_rerank = await _run_retrieval_pipeline(req, loop, start)
+    full_prompt, answer_model, gate_result, sources, fused_chunks, t_rerank, image_b64s = await _run_retrieval_pipeline(req, loop, start)
 
     query_log_id = None
     try:
@@ -1097,10 +1661,10 @@ async def query_stream(req: QueryRequest):
         provider, api_name = _resolve_model(answer_model)
 
         if provider == "ollama":
-            for token in _stream_ollama(full_prompt, api_name):
+            for token in _stream_ollama(full_prompt, api_name, image_b64s):
                 yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
         elif provider == "gemini":
-            for token in _stream_gemini(full_prompt, api_name):
+            for token in _stream_gemini(full_prompt, api_name, image_b64s):
                 yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
         else:
             try:
@@ -1188,51 +1752,85 @@ def _ingest_background(file_path: str, file_id: str, org_id: str, ext: str):
 
         try:
             from engine.db import update_file_status, upsert_chunks
-            from concurrent.futures import as_completed
-
-            parse_tasks = {}
-            if ext in [".pdf", ".txt", ".md"] and "text" in _experts:
-                parse_tasks["text"] = _parse_pool.submit(
-                    _experts["text"].parse, file_path, file_id, org_id)
-                expert_names.append("text")
-                expert_status["text"] = {"state": "running", "chunks": 0}
-
-            if (ext in [".csv"] or ext == ".pdf") and "table" in _experts:
-                parse_tasks["table"] = _parse_pool.submit(
-                    _experts["table"].parse, file_path, file_id, org_id)
-                expert_names.append("table")
-                expert_status["table"] = {"state": "running", "chunks": 0}
-
-            if (ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"] or ext == ".pdf") and "image" in _experts:
-                parse_tasks["image"] = _parse_pool.submit(
-                    _experts["image"].parse, file_path, file_id, org_id)
-                expert_names.append("image")
-                expert_status["image"] = {"state": "running", "chunks": 0}
-
-            _update("parsing", 5)
 
             all_chunks = []
             experts_used = []
-            total_tasks = len(parse_tasks)
-            future_to_expert = {v: k for k, v in parse_tasks.items()}
 
-            for future in as_completed(parse_tasks.values()):
-                expert_id = future_to_expert[future]
+            if ext == ".pdf":
                 try:
-                    chunks = future.result(timeout=600)
-                    count = len(chunks) if chunks else 0
-                    if chunks:
-                        all_chunks.extend(chunks)
-                        experts_used.append(expert_id)
-                    expert_status[expert_id] = {"state": "done", "chunks": count}
-                    print(f"[Ingest] {expert_id} -> {count} chunks")
-                except Exception as e:
-                    expert_status[expert_id] = {"state": "failed", "error": str(e)[:100]}
-                    print(f"[Ingest] [WARN] {expert_id} parse failed: {e}")
+                    print(f"[IngestBackground] Running unified PDF layout parser on {file_path}")
+                    embed_fn = None
+                    if _embed_model is not None:
+                        embed_fn = lambda texts: _embed_model.encode(texts, show_progress_bar=False)
+                    
+                    cfg = None
+                    try:
+                        from engine.db import get_org_config
+                        cfg_data = get_org_config(org_id)
+                        if cfg_data:
+                            cfg = cfg_data.get("config")
+                    except Exception:
+                        pass
 
-                done_count = sum(1 for v in expert_status.values() if v["state"] != "running")
-                progress = int(5 + (done_count / total_tasks) * 40)
-                _update("parsing", progress)
+                    blocks = extract_pdf(file_path, file_id)
+                    all_chunks = build_chunks(blocks, embed_fn, org_id, file_id, config=cfg)
+                    experts_used = list(set(c.expert_id for c in all_chunks))
+                    
+                    for expert_id in ["text", "table", "image", "code"]:
+                        cnt = sum(1 for c in all_chunks if c.expert_id == expert_id)
+                        if cnt > 0:
+                            expert_status[expert_id] = {"state": "done", "chunks": cnt}
+                            expert_names.append(expert_id)
+                    
+                    _update("parsing", 45)
+                except Exception as e:
+                    print(f"[IngestBackground] [WARN] Unified PDF layout parser failed: {e}. Falling back to modular experts.")
+                    all_chunks = []
+                    experts_used = []
+
+            if not all_chunks:
+                parse_tasks = {}
+                if ext in [".pdf", ".txt", ".md"] and "text" in _experts:
+                    parse_tasks["text"] = _parse_pool.submit(
+                        _experts["text"].parse, file_path, file_id, org_id)
+                    expert_names.append("text")
+                    expert_status["text"] = {"state": "running", "chunks": 0}
+
+                if (ext in [".csv"] or ext == ".pdf") and "table" in _experts:
+                    parse_tasks["table"] = _parse_pool.submit(
+                        _experts["table"].parse, file_path, file_id, org_id)
+                    expert_names.append("table")
+                    expert_status["table"] = {"state": "running", "chunks": 0}
+
+                if (ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"] or ext == ".pdf") and "image" in _experts:
+                    parse_tasks["image"] = _parse_pool.submit(
+                        _experts["image"].parse, file_path, file_id, org_id)
+                    expert_names.append("image")
+                    expert_status["image"] = {"state": "running", "chunks": 0}
+
+                _update("parsing", 5)
+
+                total_tasks = len(parse_tasks)
+                if total_tasks > 0:
+                    future_to_expert = {v: k for k, v in parse_tasks.items()}
+                    for future in as_completed(parse_tasks.values()):
+                        expert_id = future_to_expert[future]
+                        try:
+                            chunks = future.result(timeout=600)
+                            count = len(chunks) if chunks else 0
+                            if chunks:
+                                all_chunks.extend(chunks)
+                                if expert_id not in experts_used:
+                                    experts_used.append(expert_id)
+                            expert_status[expert_id] = {"state": "done", "chunks": count}
+                            print(f"[Ingest] {expert_id} -> {count} chunks")
+                        except Exception as e:
+                            expert_status[expert_id] = {"state": "failed", "error": str(e)[:100]}
+                            print(f"[Ingest] [WARN] {expert_id} parse failed: {e}")
+
+                        done_count = sum(1 for v in expert_status.values() if v["state"] != "running")
+                        progress = int(5 + (done_count / total_tasks) * 40)
+                        _update("parsing", progress)
 
             if not all_chunks:
                 update_file_status(file_id, "failed")

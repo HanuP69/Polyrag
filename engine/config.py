@@ -17,7 +17,7 @@ OLLAMA_VISION_MODEL = "llava:latest"
 
 # ──────────────────────────── Groq (cloud) ───────────────────────────
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-GROQ_MODEL = "llama-3.1-70b-versatile"
+GROQ_MODEL = "llama-3.3-70b-versatile"
 
 # ──────────────────────────── Gemini (cloud) ─────────────────────────
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
@@ -71,15 +71,22 @@ MODEL_REGISTRY = {
     },
     "llama-3.3-70b-specdec": {
         "provider": "groq",
-        "api_name": "llama-3.3-70b-specdec",
-        "display": "Llama 3.3 70B SpecDec ⚡",
+        "api_name": "llama-3.3-70b-versatile",
+        "display": "Llama 3.3 70B SpecDec (Redirected to Versatile) ⚡",
         "group": "Cloud (Groq)",
         "caps": ["text"],
     },
     "llama-3.1-70b-versatile": {
         "provider": "groq",
-        "api_name": "llama-3.1-70b-versatile",
-        "display": "Llama 3.1 70B",
+        "api_name": "llama-3.3-70b-versatile",
+        "display": "Llama 3.1 70B (Redirected to 3.3)",
+        "group": "Cloud (Groq)",
+        "caps": ["text"],
+    },
+    "llama-3.3-70b-versatile": {
+        "provider": "groq",
+        "api_name": "llama-3.3-70b-versatile",
+        "display": "Llama 3.3 70B Versatile ⚡",
         "group": "Cloud (Groq)",
         "caps": ["text"],
     },
@@ -180,21 +187,25 @@ CHUNK_OVERLAP = 64          # token overlap between chunks
 # ──────────────────────────── Expert registry ────────────────────────
 EXPERT_IDS = ["text", "table", "image", "code"]
 
-# ──────────────────────────── LLM Network (MoE + dynamic load) ───────
-# Each expert fires its own dedicated model.
-# Ollama evicts after each call (keep_alive=0) to free VRAM.
-# Cascade: if gate max_conf < CASCADE_THRESHOLD, escalate to CASCADE_BIG_MODEL.
-EXPERT_MODEL_MAP = {
-    "text":  {"provider": "ollama", "model": "llama3.2:3b"},
-    "table": {"provider": "ollama", "model": "llama3.2:3b"},   # good at structured reasoning
-    "image": {"provider": "ollama", "model": "llava:latest"},   # vision model
-    "code":  {"provider": "ollama", "model": "llama3.2:3b"},   # swap to codellama if you have it
-}
+if TESTING:
+    EXPERT_MODEL_MAP = {
+        "text":  {"provider": "ollama", "model": "llama3.2:3b"},
+        "table": {"provider": "ollama", "model": "llama3.2:3b"},   # good at structured reasoning
+        "image": {"provider": "ollama", "model": "llava:latest"},   # vision model
+        "code":  {"provider": "ollama", "model": "llama3.2:3b"},   # swap to codellama if you have it
+    }
+else:
+    EXPERT_MODEL_MAP = {
+        "text":  {"provider": "groq", "model": "llama-3.3-70b-versatile"},
+        "table": {"provider": "groq", "model": "llama-3.3-70b-versatile"},
+        "image": {"provider": "gemini", "model": "gemini-2.5-flash"},  # Gemini has excellent vision capability
+        "code":  {"provider": "groq", "model": "llama-3.3-70b-versatile"},
+    }
 
 # Cascade thresholds
 CASCADE_THRESHOLD   = 0.45   # gate max_conf below this → escalate
 CASCADE_SMALL_MODEL = "llama3.2:3b"          # local fast pass
-CASCADE_BIG_MODEL   = "llama-3.1-70b-versatile"  # groq escalation
+CASCADE_BIG_MODEL   = "llama-3.3-70b-versatile"  # groq escalation
 
 # ──────────────────────────── Paths ──────────────────────────────────
 import os

@@ -1,17 +1,21 @@
 from engine.experts.base import Chunk
+from typing import Optional
 
 
 def rrf_fuse(
     expert_results: dict[str, list[Chunk]],
-    weights: dict[str, float],
+    weights: Optional[dict[str, float]] = None,
     k: int = 60,
     top_n: int = 10
 ) -> list[Chunk]:
     scores: dict[str, float] = {}
     chunk_map: dict[str, Chunk] = {}
 
-    for expert_id, chunks in expert_results.items():
-        base_expert = expert_id.split("_")[0]
+    if weights is None:
+        weights = {}
+
+    for list_name, chunks in expert_results.items():
+        base_expert = list_name.split("_")[0]
         weight = weights.get(base_expert, 1.0)
 
         for rank, chunk in enumerate(chunks):

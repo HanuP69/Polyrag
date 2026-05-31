@@ -674,7 +674,7 @@ def upsert_chunks(chunks: list[Chunk]):
 def search_chunks(
     query_vec: np.ndarray,
     org_id: str,
-    expert_id: str,
+    expert_id: Optional[str] = None,
     top_k: int = 10,
     file_ids: list = None
 ) -> list[Chunk]:
@@ -691,17 +691,31 @@ def search_chunks(
 def _search_sqlite(conn, query_vec, org_id, expert_id, top_k, file_ids=None):
     if file_ids:
         placeholders = ",".join("?" * len(file_ids))
-        rows = conn.execute(
-            f"""SELECT chunk_id, org_id, file_id, expert_id, content, metadata, embedding
-               FROM chunks WHERE org_id = ? AND expert_id = ? AND file_id IN ({placeholders})""",
-            (org_id, expert_id, *file_ids)
-        ).fetchall()
+        if expert_id:
+            rows = conn.execute(
+                f"""SELECT chunk_id, org_id, file_id, expert_id, content, metadata, embedding
+                   FROM chunks WHERE org_id = ? AND expert_id = ? AND file_id IN ({placeholders})""",
+                (org_id, expert_id, *file_ids)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"""SELECT chunk_id, org_id, file_id, expert_id, content, metadata, embedding
+                   FROM chunks WHERE org_id = ? AND file_id IN ({placeholders})""",
+                (org_id, *file_ids)
+            ).fetchall()
     else:
-        rows = conn.execute(
-            """SELECT chunk_id, org_id, file_id, expert_id, content, metadata, embedding
-               FROM chunks WHERE org_id = ? AND expert_id = ?""",
-            (org_id, expert_id)
-        ).fetchall()
+        if expert_id:
+            rows = conn.execute(
+                """SELECT chunk_id, org_id, file_id, expert_id, content, metadata, embedding
+                   FROM chunks WHERE org_id = ? AND expert_id = ?""",
+                (org_id, expert_id)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT chunk_id, org_id, file_id, expert_id, content, metadata, embedding
+                   FROM chunks WHERE org_id = ?""",
+                (org_id,)
+            ).fetchall()
     if not rows:
         return []
 
@@ -753,25 +767,47 @@ def _search_pgvector(conn, query_vec, org_id, expert_id, top_k, file_ids=None):
     cur = conn.cursor()
     embedding_list = query_vec.tolist()
     if file_ids:
-        cur.execute(
-            """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
-                      1 - (embedding <=> %s::vector) as similarity
-               FROM chunks
-               WHERE org_id = %s AND expert_id = %s AND file_id = ANY(%s)
-               ORDER BY embedding <=> %s::vector
-               LIMIT %s""",
-            (embedding_list, org_id, expert_id, file_ids, embedding_list, top_k)
-        )
+        if expert_id:
+            cur.execute(
+                """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
+                          1 - (embedding <=> %s::vector) as similarity
+                   FROM chunks
+                   WHERE org_id = %s AND expert_id = %s AND file_id = ANY(%s)
+                   ORDER BY embedding <=> %s::vector
+                   LIMIT %s""",
+                (embedding_list, org_id, expert_id, file_ids, embedding_list, top_k)
+            )
+        else:
+            cur.execute(
+                """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
+                          1 - (embedding <=> %s::vector) as similarity
+                   FROM chunks
+                   WHERE org_id = %s AND file_id = ANY(%s)
+                   ORDER BY embedding <=> %s::vector
+                   LIMIT %s""",
+                (embedding_list, org_id, file_ids, embedding_list, top_k)
+            )
     else:
-        cur.execute(
-            """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
-                      1 - (embedding <=> %s::vector) as similarity
-               FROM chunks
-               WHERE org_id = %s AND expert_id = %s
-               ORDER BY embedding <=> %s::vector
-               LIMIT %s""",
-            (embedding_list, org_id, expert_id, embedding_list, top_k)
-        )
+        if expert_id:
+            cur.execute(
+                """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
+                          1 - (embedding <=> %s::vector) as similarity
+                   FROM chunks
+                   WHERE org_id = %s AND expert_id = %s
+                   ORDER BY embedding <=> %s::vector
+                   LIMIT %s""",
+                (embedding_list, org_id, expert_id, embedding_list, top_k)
+            )
+        else:
+            cur.execute(
+                """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
+                          1 - (embedding <=> %s::vector) as similarity
+                   FROM chunks
+                   WHERE org_id = %s
+                   ORDER BY embedding <=> %s::vector
+                   LIMIT %s""",
+                (embedding_list, org_id, embedding_list, top_k)
+            )
     rows = cur.fetchall()
     results = []
     for row in rows:
@@ -788,7 +824,7 @@ def _search_pgvector(conn, query_vec, org_id, expert_id, top_k, file_ids=None):
 def search_bm25(
     query: str,
     org_id: str,
-    expert_id: str,
+    expert_id: Optional[str] = None,
     top_k: int = 5,
     file_ids: list = None
 ) -> list[Chunk]:
@@ -809,17 +845,31 @@ def _search_bm25_sqlite(conn, query, org_id, expert_id, top_k, file_ids=None):
 
     if file_ids:
         placeholders = ",".join("?" * len(file_ids))
-        rows = conn.execute(
-            f"""SELECT chunk_id, org_id, file_id, expert_id, content, metadata
-               FROM chunks WHERE org_id = ? AND expert_id = ? AND file_id IN ({placeholders})""",
-            (org_id, expert_id, *file_ids)
-        ).fetchall()
+        if expert_id:
+            rows = conn.execute(
+                f"""SELECT chunk_id, org_id, file_id, expert_id, content, metadata
+                   FROM chunks WHERE org_id = ? AND expert_id = ? AND file_id IN ({placeholders})""",
+                (org_id, expert_id, *file_ids)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                f"""SELECT chunk_id, org_id, file_id, expert_id, content, metadata
+                   FROM chunks WHERE org_id = ? AND file_id IN ({placeholders})""",
+                (org_id, *file_ids)
+            ).fetchall()
     else:
-        rows = conn.execute(
-            """SELECT chunk_id, org_id, file_id, expert_id, content, metadata
-               FROM chunks WHERE org_id = ? AND expert_id = ?""",
-            (org_id, expert_id)
-        ).fetchall()
+        if expert_id:
+            rows = conn.execute(
+                """SELECT chunk_id, org_id, file_id, expert_id, content, metadata
+                   FROM chunks WHERE org_id = ? AND expert_id = ?""",
+                (org_id, expert_id)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT chunk_id, org_id, file_id, expert_id, content, metadata
+                   FROM chunks WHERE org_id = ?""",
+                (org_id,)
+            ).fetchall()
     if not rows:
         return []
 
@@ -863,37 +913,72 @@ def _tfidf_scores(keywords: list[str], docs: list[str]) -> list[float]:
         total = len(tokens) or 1
         score = 0.0
         for kw in keywords:
-            tf = tokens.count(kw) / total
+            tf = tokens.count(kw)
             idf = math.log((N + 1) / (df.get(kw, 0) + 1))
             score += tf * idf
         scores.append(score)
     return scores
 
 
+def _build_tsquery_string(query: str) -> str:
+    import re
+    words = re.findall(r'\w+', query.lower())
+    clean_words = [w for w in words if len(w) > 1]
+    if not clean_words:
+        clean_words = words if words else ["*"]
+    return " | ".join(clean_words[:15])
+
+
 def _search_bm25_pg(conn, query, org_id, expert_id, top_k, file_ids=None):
     cur = conn.cursor()
+    tsquery_str = _build_tsquery_string(query)
     if file_ids:
-        cur.execute(
-            """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
-                      ts_rank(tsv, plainto_tsquery('english', %s)) as rank
-               FROM chunks
-               WHERE org_id = %s AND expert_id = %s AND file_id = ANY(%s)
-                 AND tsv @@ plainto_tsquery('english', %s)
-               ORDER BY rank DESC
-               LIMIT %s""",
-            (query, org_id, expert_id, file_ids, query, top_k)
-        )
+        if expert_id:
+            cur.execute(
+                """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
+                          ts_rank(tsv, to_tsquery('english', %s)) as rank
+                   FROM chunks
+                   WHERE org_id = %s AND expert_id = %s AND file_id = ANY(%s)
+                     AND tsv @@ to_tsquery('english', %s)
+                   ORDER BY rank DESC
+                   LIMIT %s""",
+                (tsquery_str, org_id, expert_id, file_ids, tsquery_str, top_k)
+            )
+        else:
+            cur.execute(
+                """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
+                          ts_rank(tsv, to_tsquery('english', %s)) as rank
+                   FROM chunks
+                   WHERE org_id = %s AND file_id = ANY(%s)
+                     AND tsv @@ to_tsquery('english', %s)
+                   ORDER BY rank DESC
+                   LIMIT %s""",
+                (tsquery_str, org_id, file_ids, tsquery_str, top_k)
+            )
     else:
-        cur.execute(
-            """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
-                      ts_rank(tsv, plainto_tsquery('english', %s)) as rank
-               FROM chunks
-               WHERE org_id = %s AND expert_id = %s
-                 AND tsv @@ plainto_tsquery('english', %s)
-               ORDER BY rank DESC
-               LIMIT %s""",
-            (query, org_id, expert_id, query, top_k)
-        )
+        if expert_id:
+            cur.execute(
+                """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
+                          ts_rank(tsv, to_tsquery('english', %s)) as rank
+                   FROM chunks
+                   WHERE org_id = %s AND expert_id = %s
+                     AND tsv @@ to_tsquery('english', %s)
+                   ORDER BY rank DESC
+                   LIMIT %s""",
+                (tsquery_str, org_id, expert_id, tsquery_str, top_k)
+            )
+        else:
+            cur.execute(
+                """SELECT chunk_id, org_id, file_id, expert_id, content, metadata,
+                          ts_rank(tsv, to_tsquery('english', %s)) as rank
+                   FROM chunks
+                   WHERE org_id = %s
+                     AND tsv @@ to_tsquery('english', %s)
+                   ORDER BY rank DESC
+                   LIMIT %s""",
+                (tsquery_str, org_id, tsquery_str, top_k)
+            )
+
     rows = cur.fetchall()
     results = []
     for row in rows:
@@ -905,6 +990,24 @@ def _search_bm25_pg(conn, query, org_id, expert_id, top_k, file_ids=None):
         )
         results.append(chunk)
     return results
+
+
+def search_chunks_all(
+    query_vec: np.ndarray,
+    org_id: str,
+    top_k: int = 10,
+    file_ids: list = None
+) -> list[Chunk]:
+    return search_chunks(query_vec, org_id, expert_id=None, top_k=top_k, file_ids=file_ids)
+
+
+def search_bm25_all(
+    query: str,
+    org_id: str,
+    top_k: int = 5,
+    file_ids: list = None
+) -> list[Chunk]:
+    return search_bm25(query, org_id, expert_id=None, top_k=top_k, file_ids=file_ids)
 
 
 def log_query(

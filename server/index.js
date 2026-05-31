@@ -3,9 +3,12 @@ require("dotenv").config();
 const cluster = require("cluster");
 const os = require("os");
 
-const NUM_WORKERS = Math.min(os.cpus().length, 4);
+// Default to 1 worker in development, or override via env var
+const NUM_WORKERS = process.env.NUM_WORKERS 
+  ? parseInt(process.env.NUM_WORKERS) 
+  : (process.env.NODE_ENV === "production" ? Math.min(os.cpus().length, 4) : 1);
 
-if (cluster.isPrimary) {
+if (cluster.isPrimary && NUM_WORKERS > 1) {
   console.log("=".repeat(60));
   console.log("  PolyRAG Node.js Orchestration Server (Cluster)");
   console.log(`  Workers: ${NUM_WORKERS}`);
@@ -21,6 +24,13 @@ if (cluster.isPrimary) {
     cluster.fork();
   });
 } else {
+  // If we only need 1 worker, run directly without clustering
+  if (cluster.isPrimary) {
+    console.log("=".repeat(60));
+    console.log("  PolyRAG Node.js Orchestration Server (Single Process)");
+    console.log(`  Engine: ${process.env.ENGINE_URL || "http://localhost:8000"}`);
+    console.log("=".repeat(60));
+  }
   const express = require("express");
   const cors = require("cors");
   const morgan = require("morgan");

@@ -1,0 +1,201 @@
+query_id,query,type,source,gold_doc,gold_sec,n_retrieved,recall@1,recall@3,recall@5,recall@10,mrr@10,ndcg@10
+852703f0-8373-43a2-a18a-eb5908ad0779,What are the challenges in estimating output impedance in inverter-based grids?,abstractive,text-image,2410.14077v2,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+947fbbd3-465b-48ad-bc13-068dd830b215,How are expectations calculated in the narrative framework?,abstractive,text,2412.15239v2,6,8,1.0,1.0,1.0,1.0,1.0,1.0
+3efaa379-dc4f-46bd-9f32-b0e08d1b6d37,Why is non-Gaussianity important for identifying shocks in nonlinear SVAR models?,abstractive,text,2404.19707v4,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+dcb59b54-b8ea-46df-a604-d2ed473cd0a9,What is the significance of pro-cdh descent in derived schemes?,abstractive,text,2407.04378v2,0,8,1.0,1.0,1.0,1.0,1.0,1.0
+1f8c09da-5118-4b6f-bcd7-d2f601d7c2d7,How has differential item functioning (DIF) analysis evolved in recent years?,abstractive,text,2408.13702v3,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+7681392c-253c-499d-87f2-d05474f40bc4,Does Open AI emphasize virtual processes over in-person engagement for scalability?,extractive,text,2407.11613v2,3,8,1.0,1.0,1.0,1.0,1.0,1.0
+dd1772ea-0e31-4981-b7f0-93e544a8cd89,What is the difference in matching efficiency between private and public job search platforms?,abstractive,text,2410.17011v3,9,8,1.0,1.0,1.0,1.0,1.0,1.0
+64926bbe-8018-4885-ba53-d50cce853f3e,What improvements does the XLSR-Mamba model offer over other systems on ASVspoof datasets?,abstractive,text-image,2411.10027v2,1,8,0.0,0.0,0.0,1.0,0.16666666666666666,0.3562071871080222
+3d837100-21ff-4c15-84ea-b18828749b99,Why might complex moments be relevant despite not being commonly used in econometrics?,abstractive,text,2410.23587v3,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+60034fc3-7af5-4b0b-ac4b-0003c36fbcbc,What are the key components for controlling emotions in text-to-speech systems?,abstractive,text,2409.16681v2,10,8,0.0,0.0,1.0,1.0,0.25,0.43067655807339306
+04f06b6e-7ad7-431c-8353-d218d39daa85,What is the impact of varying exposure surfaces on data variability in statistical models?,abstractive,text-image,2403.05373v2,26,8,1.0,1.0,1.0,1.0,1.0,1.0
+29de4093-a8ca-48d3-b877-2a4a98800f90,What is the difference between worker-side and vacancy-side matching probabilities on Japanese job platforms?,abstractive,text-image,2410.17011v3,4,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+4e41b706-f97d-4616-80a3-a2f00b1f9599,How does scaling law relate to protein language modeling experiments?,abstractive,text-image,2411.08909v3,40,8,0.0,0.0,0.0,0.0,0.0,0.0
+e5ba22c5-86c7-423f-9ae8-fc19fa620cfd,What role do Bayesian models play in mitigating bias from spatial confounding?,abstractive,text,2403.05373v2,3,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+5a7c808e-37ea-4d03-9c94-efc71c950d7e,Does analyzing GTA problems require biomedical knowledge?,extractive,text,2406.15341v3,25,8,1.0,1.0,1.0,1.0,1.0,1.0
+de261def-2005-4f68-90cb-fc51b65ef12d,Does the probabilistic counter use more than $\mathcal{O}(1)$ bits to detect if it has exceeded a threshold?,extractive,text,2402.13385v2,31,8,1.0,1.0,1.0,1.0,1.0,1.0
+f177c5ff-7f57-4ded-90b2-d1433bf93ead,Why is it important to determine the maximum value points in Gaussian function analysis?,abstractive,text-image,2411.11402v4,13,8,1.0,1.0,1.0,1.0,1.0,1.0
+84bcb1a2-aa7b-4a93-8633-15793fdec09d,What role does alpha play in determining cost reductions within extended MRP models during periods of temporary overbooking?,abstractive,text-table,2403.11010v3,27,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+afe36247-d8dd-402f-8bfc-90fc0b6f3e8c,"Which molecule has a higher reward score, aripiprazole or celecoxib?",extractive,text-table,2405.01155v3,14,8,1.0,1.0,1.0,1.0,1.0,1.0
+2636d681-f4d6-4514-a0a2-187fe1058194,How does complex integration help in solving differential equations?,abstractive,text-image,2411.11402v4,6,8,0.0,0.0,0.0,1.0,0.14285714285714285,0.3333333333333333
+4a225574-06a5-48e1-85eb-ab911da819d5,What are the implications of the absence of massive activations in LC-PLM?,abstractive,text,2411.08909v3,35,8,1.0,1.0,1.0,1.0,1.0,1.0
+e088013f-2c75-42a1-b2b7-43c871e82340,Is actual story text used alongside other features to predict user engagement metrics?,extractive,text,2412.15239v2,7,8,1.0,1.0,1.0,1.0,1.0,1.0
+70fd72f5-f7e0-4a76-b1b4-5f71e3554cb6,What factors might contribute to declining job-worker finding rates in Japanese employment markets?,abstractive,text-image,2410.17011v3,4,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+443070a7-ef46-4508-bc5b-04299ae51cc4,What is the purpose of the penalization term in the penalized sum of squares function?,abstractive,text,2404.19707v4,25,8,1.0,1.0,1.0,1.0,1.0,1.0
+d639debd-b486-4fd2-a555-45f39a35cedf,How does discarding q-axis dynamics affect noise reduction in power networks?,abstractive,text-table-image,2410.14077v2,9,8,1.0,1.0,1.0,1.0,1.0,1.0
+48c71b08-847e-412c-a516-c529c60b475f,Does the selection of different spectral diffusion regularization factors show significant differences in correlation or linear regression to truth?,extractive,text,2408.06427v2,14,8,1.0,1.0,1.0,1.0,1.0,1.0
+a35e43db-c0a5-4274-9f11-99ef9c5fdba4,In what ways does the training approach of LMFold differ from traditional methods that use multiple sequence alignments (MSA)?,abstractive,text-table,2411.08909v3,13,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+f1c03004-90e6-43fb-938c-912ce7ce8fde,Can diffusion models be used to generate more samples from a distribution?,extractive,text,2404.18869v2,10,8,1.0,1.0,1.0,1.0,1.0,1.0
+efe5d614-9733-4ed3-84ef-2c696c458822,Is there a single project that leads to successful innovation if examined?,extractive,text,2412.03227v2,2,8,1.0,1.0,1.0,1.0,1.0,1.0
+726a887e-a42e-4b5b-9a14-791dc9bd8419,What is the role of neural operators in MRI reconstruction?,abstractive,text-image,2410.16290v4,5,8,1.0,1.0,1.0,1.0,1.0,1.0
+578452f3-94f0-41cf-a58a-628e12bc50e2,How does rising demand uncertainty affect the placement of safety stock in the supply chain?,abstractive,text,2403.11010v3,5,8,1.0,1.0,1.0,1.0,1.0,1.0
+3856fb1b-e988-4da7-8b38-038f495a3bdc,Is there a significant enhancement in collective heat current at a parasitic bath temperature of 50 mK compared to independent scenarios?,extractive,text-table-image,2401.17469v2,6,8,1.0,1.0,1.0,1.0,1.0,1.0
+5ab73cfa-dc79-42d1-97f0-d9a4789358a0,Does every voter participate in each round of voting?,extractive,text,2410.20476v2,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+dd3445d0-e0cd-40ea-a060-2310bda1e6d9,"What does the expression \(|x|^r = (-x)^r = \frac{\Gamma(r+1)}{2 \pi}\int_{-\infty}^{+\infty}\frac{e^{-zx}}{z^{r+1}}\mathrm{~d}t, x<0\) represent?",extractive,text,2410.23587v3,10,8,1.0,1.0,1.0,1.0,1.0,1.0
+c1070c8a-180d-451c-9506-aed2dc117ecf,Is a second-order Taylor expansion needed to analyze the error of Taylor's expansion for ATM curvature?,extractive,text,2401.03776v8,13,8,1.0,1.0,1.0,1.0,1.0,1.0
+337aeef5-3269-4ba3-b4db-014e98bb65f5,What is the relationship between nitrogen oxides and tropospheric ozone in environmental studies?,abstractive,text-image,2403.05373v2,12,8,1.0,1.0,1.0,1.0,1.0,1.0
+51002b0c-79ad-47f0-bcce-efe0f13591e7,What role do BiMambas play in the performance of spoofing detection systems?,abstractive,text-table-image,2411.10027v2,8,8,1.0,1.0,1.0,1.0,1.0,1.0
+f5f5c9da-cb06-464a-ab35-54169b842463,Does the GenoTEX dataset include personally identifiable information?,extractive,text,2406.15341v3,21,8,1.0,1.0,1.0,1.0,1.0,1.0
+dbf52b1e-35fa-4560-b326-57be912c3917,What replaces transpose convolutions in the UDNO network architecture?,extractive,text,2410.16290v4,17,8,1.0,1.0,1.0,1.0,1.0,1.0
+2b65ac50-7ef6-454f-a4ee-0e3821acf3d9,Does the function obtained through the Fourier transform coincide with the solution to the differential equation over all real numbers?,extractive,text,2411.11402v4,3,8,1.0,1.0,1.0,1.0,1.0,1.0
+181adc75-e279-4ebc-a137-e84b4e923fb2,What limitations exist regarding achieving sub-linear dynamic regret?,abstractive,text,2406.05714v3,0,8,1.0,1.0,1.0,1.0,1.0,1.0
+c25755b8-ac71-4b46-ba66-33b87cbfd3eb,What are Generalized Impulse Response Functions used for in economic models?,abstractive,text-image,2404.19707v4,14,8,1.0,1.0,1.0,1.0,1.0,1.0
+f6158d58-e4b7-40c8-b4aa-66c7f7827175,What does greater fibrosis indicate in terms of tissue parenchyma flow?,abstractive,text,2408.06427v2,16,8,1.0,1.0,1.0,1.0,1.0,1.0
+2edf284b-1689-4dc7-89d0-321935d60f18,What role does channel estimation play in enhancing the performance of smart applications in 6G networks?,abstractive,text,2407.07009v2,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+72c9887e-79b4-404f-a8da-5868c6e03b71,How does local awareness affect the infection probability in a network model?,abstractive,text-table,2406.09983v2,12,8,1.0,1.0,1.0,1.0,1.0,1.0
+275da026-2aca-46c2-a744-bf00e061c9bb,Is there evidence of high-frequency operations related to strategy gaming in the Sarafu network?,extractive,text,2409.13674v3,9,8,1.0,1.0,1.0,1.0,1.0,1.0
+c0cbca63-9e4a-4501-87dd-64d11572b148,Does constructing optimal μ-self-concordant barriers remain an open problem for any specific case?,extractive,text,2406.05714v3,13,8,1.0,1.0,1.0,1.0,1.0,1.0
+a55c5047-a084-498c-8c79-7ce41a9c186a,How does the idea of adjustable search intensity challenge traditional views on when to stop research efforts?,abstractive,text,2412.03227v2,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+63f79c6a-1e48-4869-a67c-441dcb7a8eeb,What is the importance of measurement equivalence in health outcome evaluations?,abstractive,text,2408.13702v3,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+4dee6765-fe77-4876-9d6e-d6ec21fafbd3,How do commutative diagrams assist in proving properties of scheme modifications?,abstractive,text-image,2407.04378v2,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+37d77866-74fb-4033-bd4d-ed31e3752571,What are pinching-antenna systems and how do they enhance wireless communication?,abstractive,text,2412.13892v2,0,8,1.0,1.0,1.0,1.0,1.0,1.0
+6983797e-5667-4f1f-84ff-2c0480acd36b,Are dagTin components associated with users collecting Sarafu from fake accounts?,extractive,text,2409.13674v3,7,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+ee6edc7c-52ef-499f-be13-6cc7373369c9,"What percentage of users come from treated areas like Kinango, Mukuru kwa Njenga slum, and Kisauni?",extractive,text,2409.13674v3,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+6d320467-4857-42ea-9d69-5271da9f0598,What challenges do classroom environments pose for automatic speech recognition systems?,abstractive,text,2409.14494v3,0,8,0.0,1.0,1.0,1.0,0.3333333333333333,0.5
+e49fdf65-0c99-4122-a586-2839a81b2920,How do audience expectations influence engagement with stories?,abstractive,text,2412.15239v2,0,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+623b6ce0-745d-45b2-813a-243849a04d39,What is the relationship between denoising loss and KL divergence in Gaussian distributions?,abstractive,text,2410.10516v3,31,8,1.0,1.0,1.0,1.0,1.0,1.0
+1cbc50c6-69e9-4f6f-ac02-b5b6213227ad,How do AutoStep and fixed step methods compare in terms of jump distance versus initial step size?,abstractive,text-image,2410.18929v2,25,8,0.0,0.0,1.0,1.0,0.25,0.43067655807339306
+99b906aa-4a0a-4e80-a819-af844081a5da,What happens to the solution of the DDE when \( a \rightarrow \infty \)?,extractive,text,2411.11402v4,12,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+d1f70dd0-f0cc-437c-adad-f79c067b98d0,What does a detailed analysis of ECS values reveal about behavioral epidemiology research directions?,abstractive,text-image,2406.09983v2,5,8,1.0,1.0,1.0,1.0,1.0,1.0
+020eb8fc-894c-485e-b2d9-099a42a02552,What is the purpose of the multilevel binary LR model?,abstractive,text,2408.13702v3,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+d79e4409-b566-4bd8-9375-7f92661cda07,What is a warm start in the context of Gaussian mixtures?,extractive,text,2404.18869v2,23,8,1.0,1.0,1.0,1.0,1.0,1.0
+6f441cc1-412c-44ae-aee6-c88cde6614f3,What happens to outgoing transitions from the final state in an rDFA for a suffix-free language?,extractive,text,2402.13385v2,32,8,1.0,1.0,1.0,1.0,1.0,1.0
+9ff78b2c-0431-4dab-a391-2b442578faf4,How does the modified algorithm output core-periphery proportions?,abstractive,text,2409.06994v3,7,8,1.0,1.0,1.0,1.0,1.0,1.0
+404acb21-fc8e-47ba-a419-a32c25a59611,What are the cost implications of underestimating versus overestimating demand forecasts in MRP systems?,abstractive,text,2403.11010v3,0,8,1.0,1.0,1.0,1.0,1.0,1.0
+dcec6f3c-d98b-4ed5-b56f-f944f4428198,Is MRP a commonly used planning method for production systems?,extractive,text,2403.11010v3,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+20348dc2-ba02-4b35-a240-cfcb1175ebe6,How does backward scheduling work in a multi-stage production system?,abstractive,text-image,2403.11010v3,12,8,1.0,1.0,1.0,1.0,1.0,1.0
+abda7c73-dc7b-4984-b50c-7595ff84a123,How does increasing nonlinearity and drive amplitude affect a squeeze-driven Kerr oscillator system?,abstractive,text,2408.00934v2,1,8,0.0,0.0,0.0,0.0,0.0,0.0
+3bf50a20-f201-4cf0-ae09-84ba1fdc7304,How can likelihood-based approaches be used in parameter estimation for differential equation models?,abstractive,text,2405.08177v5,0,8,0.0,0.0,1.0,1.0,0.25,0.43067655807339306
+12fe76c1-fb84-4ac7-9229-a3f2351b9a39,Why might uniformity in an integrand be advantageous for evaluating distribution moments?,abstractive,text-image,2410.23587v3,15,8,1.0,1.0,1.0,1.0,1.0,1.0
+1a5ed0aa-16e4-40a7-a9b9-b10f8e798108,Which cluster shows a significant drop in bike rides during weekends?,extractive,text-image,2407.13314v3,19,8,1.0,1.0,1.0,1.0,1.0,1.0
+3445dc5c-da71-4787-a2ec-754b5655a753,What is the purpose of knowledge distillation in machine learning?,abstractive,text,2411.07483v2,0,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+a994924e-3a3c-4b8d-835f-7538f091b4c9,Do LLMs generate only one potential story continuation?,extractive,text,2412.15239v2,5,8,1.0,1.0,1.0,1.0,1.0,1.0
+377c1cd5-f3a6-425e-8bc1-a1b24d0a93da,How does immune system activation affect tissue damage during viral infections?,abstractive,text-image,2408.07618v3,7,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+9580a29c-3a13-47d7-80c7-1ba432bd5bef,How does Bayesian updating affect research strategies in innovation models?,abstractive,text,2412.03227v2,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+f0105fa8-9dab-49a8-be58-8b80fcff1e82,Is there a formula for differentiating posterior expectations with respect to \( y_i \)?,extractive,text,2404.18869v2,14,8,1.0,1.0,1.0,1.0,1.0,1.0
+7497c558-2ab4-49f1-8d08-ea7f19be6437,What steps are involved in using LLMs to model consumer engagement with stories?,abstractive,text-image,2412.15239v2,3,8,1.0,1.0,1.0,1.0,1.0,1.0
+99942256-10b1-4438-8601-a93975c47b27,How does the number of qubits influence superradiant heat current enhancement?,abstractive,text-image,2401.17469v2,5,8,0.0,0.0,0.0,1.0,0.125,0.31546487678572877
+f539de1c-09d3-48cd-92a0-0556adb713a2,What does finite differencing do to the degree of a polynomial?,extractive,text,2404.18869v2,16,8,0.0,0.0,1.0,1.0,0.25,0.43067655807339306
+a763e035-7069-4b5b-a86f-deee9d80adb1,What practical applications do the new moment expressions have in dynamic financial models?,abstractive,text,2410.23587v3,1,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+8b29750f-d1a2-4fcb-be32-d1b88f953c69,"What is the approximate energy value for the emotion ""Anxious""?",extractive,text-table-image,2409.16681v2,3,8,1.0,1.0,1.0,1.0,1.0,1.0
+d70ab711-e77b-4390-8cb5-cefc03cc1048,How effective is the model in classifying different microbiome habitats based on gene interactions?,abstractive,text-table-image,2405.05998v3,3,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+bdf4661c-1278-4a7e-b8da-9cc92570ad2c,Does the clustering matrix depend on exact community labels?,extractive,text,2409.06994v3,3,8,1.0,1.0,1.0,1.0,1.0,1.0
+b33d2194-fc5c-4c5d-a183-26f168789e75,What is the contextual continuum bandits problem?,abstractive,text,2406.05714v3,0,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+dc1ee820-c59e-41e8-a26b-72b925e3f79b,What does increasing resolution in $\mathbf{k}$ space do to the field of view in the reconstructed image?,abstractive,text,2410.16290v4,6,8,1.0,1.0,1.0,1.0,1.0,1.0
+446a0d54-ad16-4cda-a2e5-12607507960d,What are the key concepts involved in modifications of derived schemes?,abstractive,text-image,2407.04378v2,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+c9fb8e63-6f77-4ddf-8769-fb091c667446,How does Wav2vec2.0 improve speech recognition in noisy classroom settings?,abstractive,text,2409.14494v3,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+c818686a-2895-4391-9600-8bddf92e9ea2,"Do emotions like 'Sad' and 'Neutral' exhibit higher values of pitch, energy, and spectral flux?",extractive,text,2409.16681v2,8,8,1.0,1.0,1.0,1.0,1.0,1.0
+1245762a-3b24-4fa2-ab8c-5686aa68f538,Does chaos affect cat states in a Kerr parametric oscillator?,extractive,text,2408.00934v2,0,8,0.0,0.0,1.0,1.0,0.25,0.43067655807339306
+aa2f1128-db21-4c84-ad33-51ad3eabb7d0,How does elasticity with respect to vacancies change for employment platforms from 2014 to 2024?,abstractive,text-image,2410.17011v3,7,8,1.0,1.0,1.0,1.0,1.0,1.0
+70edfe4a-61b2-4c59-80a7-a6c3efd0cbc2,What role does temperature play in enhancing collective heat currents using transmon qubits?,abstractive,text-table-image,2401.17469v2,6,8,1.0,1.0,1.0,1.0,1.0,1.0
+b15bcf25-1fcd-4745-81d3-1db3e2caef63,What is the main advantage of the PACE algorithm in community detection?,abstractive,text,2409.06994v3,4,8,0.0,1.0,1.0,1.0,0.3333333333333333,0.5
+2d25d3ca-2ecb-44c1-adc9-e090bb187824,What is the purpose of using a variable direction forgetting recursive-least-square algorithm in power networks?,abstractive,text-table-image,2410.14077v2,8,8,0.0,0.0,0.0,1.0,0.14285714285714285,0.3333333333333333
+817a7bd6-fad8-4256-86f0-e2bb87d1b3fe,Does the identification method impose restrictions on the impact responses of variables?,extractive,text,2404.19707v4,7,8,1.0,1.0,1.0,1.0,1.0,1.0
+94a3e68c-cd85-4181-a187-cbf76f11fd58,Does coin or phase disorder enhance single-particle entanglement at specific time steps?,extractive,text,2410.12710v2,4,8,0.0,0.0,0.0,0.0,0.0,0.0
+a528047e-326a-4044-a0ee-344d950f938e,What is the Voting with Random Proposers (VRP) procedure?,extractive,text,2410.20476v2,0,8,1.0,1.0,1.0,1.0,1.0,1.0
+01063042-ba62-4c90-8cb6-9ac5df7adb2a,What are the four main concepts defined by XAI?,extractive,text,2407.07009v2,3,8,1.0,1.0,1.0,1.0,1.0,1.0
+ee06e7f2-5dc4-4db0-8b48-04842b11cbca,What happens to Floquet states as control parameter $\Gamma$ increases?,abstractive,text-image,2408.00934v2,3,8,1.0,1.0,1.0,1.0,1.0,1.0
+7c70ff6e-64dc-4c2c-991b-691c77983af5,Is an eGFR less than 45 ml/min/1.73 m² considered impaired kidney function?,extractive,text,2408.06427v2,9,8,1.0,1.0,1.0,1.0,1.0,1.0
+d364746a-e6c4-457f-b213-217bd899393a,What influences the ATM skew in the Edgeworth series?,abstractive,text,2401.03776v8,13,8,1.0,1.0,1.0,1.0,1.0,1.0
+9599980d-1795-4499-baa1-f6cdd678a95c,Is the manifold $T^{n} \times S^{n+1}$ orderable?,extractive,text,2411.19887v2,3,8,1.0,1.0,1.0,1.0,1.0,1.0
+f8f2baf4-1b9c-4170-a087-445a4a15e56d,How do cyclic components influence user behavior in currency networks?,abstractive,text,2409.13674v3,1,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+e136e1cb-4b76-4ee8-8ca0-ed37e54a4689,How do Fixed-Order-Quantity (FOQ) and Fixed-Order-Period (FOP) policies differ in handling forecast updates within an MRP framework?,abstractive,text,2403.11010v3,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+3d0f0900-fea5-4a70-b8f5-ebceefe4c3f4,Is streaming pattern matching related to regular languages in the sliding window model?,extractive,text,2402.13385v2,11,8,0.0,0.0,0.0,0.0,0.0,0.0
+593b5c81-6f72-46fa-baf9-415fb4ab99bd,What is the purpose of using LSTM-based pLMs in protein language modeling?,abstractive,text,2411.08909v3,20,8,1.0,1.0,1.0,1.0,1.0,1.0
+d67fc1cf-a50f-41fc-91ed-27a39b3cb715,In what scenarios does NMPC differ from cKoLPV-MPC?,abstractive,text-image,2405.07312v3,17,8,1.0,1.0,1.0,1.0,1.0,1.0
+5ea6e8a0-40d7-46c2-b0d2-21676f4e117c,How does the UniGEM model generate molecular structures?,abstractive,text-image,2410.10516v3,20,8,0.0,0.0,0.0,0.0,0.0,0.0
+3b165412-bc10-4952-b4ba-d3b82b16e9cd,What is the KSESS diagnostic used for in statistical analysis?,extractive,text-image,2410.18929v2,26,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+097b7b88-c1f0-4606-8512-c4ac3fd5b59e,Does the structural STVAR model allow for capturing nonlinearities in the effects of CPU shocks?,extractive,text,2404.19707v4,11,8,1.0,1.0,1.0,1.0,1.0,1.0
+7ce53dae-1362-44cf-bd46-123a2254a3f8,How do nonparametric methods contribute to understanding job matching functions?,abstractive,text,2410.17011v3,0,8,0.0,0.0,1.0,1.0,0.2,0.38685280723454163
+ab0da084-d247-4b0b-bc97-e45e78315b44,What does it mean for AutoStep MCMC to be $\pi$-irreducible?,extractive,text,2410.18929v2,8,8,1.0,1.0,1.0,1.0,1.0,1.0
+7a09675c-b21d-4369-a890-4d39c9b85cc6,Why is the concept of an ample line bundle important in scheme theory?,abstractive,text-image,2407.04378v2,4,8,0.0,0.0,1.0,1.0,0.25,0.43067655807339306
+761a0e38-f4b2-4ec3-94ec-db5fb4c5bdf4,How do tori and general linear groups relate to invariant ideals?,abstractive,text,2402.12350v3,0,8,1.0,1.0,1.0,1.0,1.0,1.0
+6bf35eb7-fff2-4d46-a4a5-d05324b2ae3e,What is the significance of positive Event Containment Scores (ECS) in understanding epidemics?,abstractive,text-image,2406.09983v2,3,8,0.0,1.0,1.0,1.0,0.3333333333333333,0.5
+9d979e8e-677f-45df-a681-576548daee8a,Why is maximizing the minimum achievable data rate important in wireless networks?,abstractive,text,2412.13892v2,0,8,1.0,1.0,1.0,1.0,1.0,1.0
+6f1e268c-3189-47a9-9500-fd6b10d27c62,What benefits does the XAI-CHEST framework offer over traditional deep learning-based channel estimation methods?,abstractive,text,2407.07009v2,0,8,1.0,1.0,1.0,1.0,1.0,1.0
+56e8a093-a23a-482d-8136-51845ef532f1,What role do synthesis constraints play in molecule design?,abstractive,text-image,2405.01155v3,30,8,0.0,0.0,0.0,0.0,0.0,0.0
+aa5f6ec5-ee77-420d-8f45-8e1a9f4f6586,Are PFAS associated with thyroid disruption in humans?,extractive,text,2404.09358v3,6,8,1.0,1.0,1.0,1.0,1.0,1.0
+9e499855-13ff-403f-b34f-2e33e78981eb,Does block affine-identifiability imply block-identifiability?,extractive,text,2409.02772v2,33,8,1.0,1.0,1.0,1.0,1.0,1.0
+784a158d-dee3-400b-90e6-7f56ce7c6f92,What is a Kalman vortex street and how is it generated?,abstractive,text-table-image,2405.07312v3,16,8,1.0,1.0,1.0,1.0,1.0,1.0
+a30c73f5-baa4-4ae5-b226-56df14053392,What is a non-autonomous delay differential equation?,extractive,text,2411.11402v4,0,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+4d912368-f058-44e9-8c55-8b15acd524b9,Is data from the NSDUH survey available for download?,extractive,text,2408.13702v3,11,8,1.0,1.0,1.0,1.0,1.0,1.0
+9afec1ff-1dd4-4717-bf61-ec9b610f997f,Can you represent instantaneous amplitudes and phases using an analytical graph signal?,extractive,text,2412.18501v3,4,8,0.0,0.0,0.0,1.0,0.16666666666666666,0.3562071871080222
+4accaf84-a945-46a6-8de0-f563fad3dc9c,Is the GenoTEX dataset publicly available?,extractive,text,2406.15341v3,20,8,1.0,1.0,1.0,1.0,1.0,1.0
+dd5559ba-8c69-4a0d-a0b9-e0b8d9b3120f,What is an interval-based search strategy?,abstractive,text,2412.03227v2,3,8,1.0,1.0,1.0,1.0,1.0,1.0
+aa7c0f53-8ac0-4f2a-9f13-1c35f6a6c457,Are gradient-based methods in XAI dependent on back-propagation?,extractive,text,2407.07009v2,3,8,1.0,1.0,1.0,1.0,1.0,1.0
+d0d1ca42-0c60-4b61-92c3-e3c7603bad79,Does the VRP procedure select the Condorcet winner in only two rounds under certain conditions?,extractive,text,2410.20476v2,7,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+bc8c668b-7f43-4bfa-a7ec-92b041650f60,What role does the parameter $\left|\frac{b}{a \tau}\right|$ play in finding solutions for maximizing functions?,abstractive,text-image,2411.11402v4,13,8,1.0,1.0,1.0,1.0,1.0,1.0
+2673645e-f1d9-418f-8888-310bf80b1604,Can the best linear unbiased predictor of a stochastic process be expressed as an optimal smoothing function in an RKHS?,extractive,text,2403.05373v2,6,8,1.0,1.0,1.0,1.0,1.0,1.0
+372350e1-ba4d-4815-bf19-876a2c67a6b7,"What is a ""nintervention"" in causal representation learning?",extractive,text,2409.02772v2,7,8,1.0,1.0,1.0,1.0,1.0,1.0
+dbe52ec8-ff7e-4ad7-b9a4-17ca01822e93,Are there any differences in how containment health index correlates with event containment scores across various COVID-19 variants?,extractive,text-table-image,2406.09983v2,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+a596fd52-73ac-4801-be78-0c22a9d15e1f,Why is an extensive collection of building blocks necessary for synthetic accessibility?,abstractive,text-image,2405.01155v3,9,8,1.0,1.0,1.0,1.0,1.0,1.0
+fbca6ea0-38ad-4a2f-adfa-a13274b85efa,How does the Ubuntu project provide financial returns to contributors?,abstractive,text-image,2407.11613v2,5,8,1.0,1.0,1.0,1.0,1.0,1.0
+b58d6c17-2ad6-4d0d-83f4-cc89dfc17122,What trends are observed in the elasticity of online job search platforms in Japan from 2014 to 2024?,abstractive,text-image,2410.17011v3,2,8,0.0,1.0,1.0,1.0,0.3333333333333333,0.5
+aef516d0-ea1b-4873-b478-ca2b1b8e3b76,Can subjective beliefs replace objective stochastic processes in this approach?,extractive,text,2403.01421v2,7,8,1.0,1.0,1.0,1.0,1.0,1.0
+19fb8c54-231f-4405-8c8d-bee4324ec9aa,How do RID and VID compare in terms of robustness to suboptimal training conditions?,abstractive,text-table,2411.07483v2,19,8,0.0,1.0,1.0,1.0,0.3333333333333333,0.5
+2eca6d91-b43b-4bf6-aa3d-0be6075838f6,How does OpenAI aim to democratize the design of large language models (LLMs)?,abstractive,text-table-image,2407.11613v2,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+26df9b5a-5fec-4398-afcd-e044653b63ab,Are several models in multiple settings found to be aligned despite not being optimized directly?,extractive,text,2409.02772v2,39,8,1.0,1.0,1.0,1.0,1.0,1.0
+d54ab169-0cfb-4a92-97a3-af026a3b61c3,Where can the Sarafu data be downloaded from?,extractive,text,2409.13674v3,12,8,1.0,1.0,1.0,1.0,1.0,1.0
+95df7c6e-100c-465f-b8b3-4f34838a0d51,What role do clustering techniques play in analyzing gene pairs within microbiome habitats?,abstractive,text-table-image,2405.05998v3,3,8,1.0,1.0,1.0,1.0,1.0,1.0
+e51bbbef-f955-4d23-86cd-6ff94e936279,What is a common limitation of existing approaches in terms of sequence information?,abstractive,text,2405.05998v3,9,8,1.0,1.0,1.0,1.0,1.0,1.0
+50210127-57ef-406a-8f27-0ea01e14faf7,Why is 3D denoising considered an effective pre-training strategy?,abstractive,text,2410.10516v3,26,8,1.0,1.0,1.0,1.0,1.0,1.0
+eda089ac-cd1e-4887-8a1f-48ee5c0f874b,Do traditional ML models like random forests and SVMs perform well on k-mer counts in bioinformatics?,extractive,text,2405.05998v3,5,8,1.0,1.0,1.0,1.0,1.0,1.0
+509fb86a-d580-4bbc-9cd4-87882fdf7314,How does topological analysis help understand payment system networks?,abstractive,text,2409.13674v3,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+82a48996-a518-41aa-a240-00f1e189aebc,What is the trend in labor market tightness (V/U) for Hello Work from 2014 to 2024?,extractive,text-image,2410.17011v3,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+26733471-fe75-4512-984b-f6baa91270f8,How do bike usage patterns vary across different areas of a city?,abstractive,text-image,2407.13314v3,19,8,1.0,1.0,1.0,1.0,1.0,1.0
+b3f3c3e8-7692-49fe-bfa2-ceadc2549f77,Why are hub genes significant in microbiome research?,abstractive,text-table-image,2405.05998v3,6,8,0.0,0.0,0.0,0.0,0.0,0.0
+51e78292-4304-4763-9e55-3317e8fdd3c7,Why might a rational agent continue searching for a finite prize despite increasing costs?,abstractive,text,2412.03227v2,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+bcf65bf6-51bb-444d-9819-2d888c6b4ee4,Does DISCO converge to a pointwise operator like standard convolutional layers?,extractive,text,2410.16290v4,24,8,1.0,1.0,1.0,1.0,1.0,1.0
+4671ec46-9402-417b-a56f-8473395e6c45,What are the vertices of the integration path for \( t > 0 \)?,extractive,text-image,2411.11402v4,6,8,1.0,1.0,1.0,1.0,1.0,1.0
+dcbb6ebc-cdbf-4f1b-9afd-c831d37443d2,Can regular languages be recognized using constant space in streaming algorithms?,extractive,text,2402.13385v2,10,8,1.0,1.0,1.0,1.0,1.0,1.0
+b2a84f67-2f0b-476b-817e-ea19f0bf9493,What is a well-behaved rDFA?,extractive,text,2402.13385v2,27,8,1.0,1.0,1.0,1.0,1.0,1.0
+6714edb0-7c1b-4eaf-8304-de65932b1919,What factors influenced local awareness behavior during the Omicron BA.1 wave of COVID-19?,abstractive,text-image,2406.09983v2,5,8,0.0,0.0,1.0,1.0,0.2,0.38685280723454163
+327116ce-eca0-4bd2-9fc8-85a87e81da17,Why is there still much room for investigation within the field of delay differential equations?,abstractive,text,2411.11402v4,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+05073e83-84a3-4a25-969b-ab8067a9fcbd,What does it mean for two words to be separated by a language?,abstractive,text,2402.13385v2,14,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+4877fdf9-0047-4024-a160-dff6c8cc2304,Why might traditional subjective expected utility have limitations when some objects have already been sampled?,abstractive,text-image,2403.01421v2,6,8,1.0,1.0,1.0,1.0,1.0,1.0
+244c5d11-a4fb-4629-b80c-5caba594f480,What challenges does the unified model for compressed sensing MRI aim to address?,abstractive,text,2410.16290v4,13,8,1.0,1.0,1.0,1.0,1.0,1.0
+aec5df3b-f8bd-40e0-8339-83852b6871dc,What happens to safety stock levels when there is an increase in uncertainty?,abstractive,text,2403.11010v3,5,8,1.0,1.0,1.0,1.0,1.0,1.0
+7693ee23-49de-4277-a6e8-8267e06b793a,What does interventional CRL consider in terms of data generation?,abstractive,text,2409.02772v2,21,8,1.0,1.0,1.0,1.0,1.0,1.0
+c9fb15a6-bed4-4e55-954c-2775792d637c,Are there more collision clusters with positive Event Containment Score (ECS) during Omicron BA.2 than Delta?,extractive,text-image,2406.09983v2,18,8,0.0,0.0,0.0,0.0,0.0,0.0
+16707bb6-83e0-4f2a-81ad-3bdf93d0afaa,What is a control Koopman operator and how is it used in nonlinear systems?,abstractive,text-image,2405.07312v3,4,8,0.0,0.0,0.0,0.0,0.0,0.0
+061855bb-b000-474e-8e09-e27109c5e168,What happens if preferences violate single-peakedness in voting procedures?,abstractive,text,2410.20476v2,7,8,1.0,1.0,1.0,1.0,1.0,1.0
+b596e3dd-980c-491b-8478-451402379895,What role do positive or negative ratios play in determining the behavior of an envelope function?,abstractive,text-image,2411.11402v4,14,8,0.0,1.0,1.0,1.0,0.3333333333333333,0.5
+33b51fef-bd48-465a-ad31-b97560793a5d,How does the Recursive Public project approach diversity in opinions?,abstractive,text-image,2407.11613v2,9,8,1.0,1.0,1.0,1.0,1.0,1.0
+e8b1b264-5b1f-4a4a-b646-2040b790f836,What is the role of neural operators in MRI reconstruction?,abstractive,text-image,2410.16290v4,4,8,0.0,0.0,0.0,1.0,0.16666666666666666,0.3562071871080222
+a3c95d17-ac79-47e2-8da2-a9ddfe708c82,How does context-aware planning help agents in gene expression data analysis?,abstractive,text,2406.15341v3,10,8,1.0,1.0,1.0,1.0,1.0,1.0
+47b2b5c0-96b4-4537-ac44-c431a9365044,How can Python functions be used to validate gene expression data analysis?,abstractive,text,2406.15341v3,31,8,1.0,1.0,1.0,1.0,1.0,1.0
+ed5b4bab-8103-41d9-b863-dbf90ef9d6f6,Is uniform sampling of time steps sufficient for predictive task training?,extractive,text,2410.10516v3,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+3973387a-c318-4912-a5e3-f0ccc1ea4681,Does any synthesis pathway have a QED value greater than 0.4?,extractive,text-image,2405.01155v3,30,8,0.0,0.0,0.0,0.0,0.0,0.0
+78c3b45c-788d-49f1-a196-2c96cd3206fe,What is the relationship between \( \bar{J} \) and \( Q_h \) in low-temperature conditions?,abstractive,text-image,2401.17469v2,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+94b0e85f-7737-44f1-97be-34d34bcd9720,Why is a quadratic function used for approximating short-term implied volatility?,abstractive,text,2401.03776v8,7,8,1.0,1.0,1.0,1.0,1.0,1.0
+c8f228aa-8025-44e2-ac21-b202dbba376e,What role does Partial Information Decomposition play in knowledge distillation?,abstractive,text,2411.07483v2,0,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+fe1c96e9-42de-45c9-9422-063b55c14ce5,What is the minimum value of $\mu$ for a self-concordant barrier on a convex polytope $\Theta$?,extractive,text,2406.05714v3,13,8,1.0,1.0,1.0,1.0,1.0,1.0
+f45863f8-172e-4503-91af-871b3feb0956,What role do Lyapunov exponents play in analyzing chaos within a double-well structure?,abstractive,text-image,2408.00934v2,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+e3822ed5-2b21-437d-9e00-35ee1503f9a9,Why is Lasso regression used in analyzing gene expression data?,abstractive,text-image,2406.15341v3,6,8,1.0,1.0,1.0,1.0,1.0,1.0
+47814fcb-031b-48a6-99c3-fe60a2aa1ec6,What do the listed orthologs help identify within gene interaction networks?,abstractive,text,2405.05998v3,10,8,1.0,1.0,1.0,1.0,1.0,1.0
+4e78e3c2-d10c-4bbb-a908-44db042ee83f,What role do pilot subcarriers play in improving channel estimation accuracy?,abstractive,text-image,2407.07009v2,18,8,0.0,0.0,0.0,1.0,0.16666666666666666,0.3562071871080222
+c313983d-19f5-4790-b743-b731cea83fc0,What is spatial confounding and why is it a problem in statistical models?,abstractive,text,2403.05373v2,2,8,1.0,1.0,1.0,1.0,1.0,1.0
+a5c86de2-e85e-444f-a3ed-056e19215856,Is there a condition under which a teacher representation $T_1$ can have less unique information than another teacher representation $T_2$?,extractive,text,2411.07483v2,11,8,1.0,1.0,1.0,1.0,1.0,1.0
+29af34fe-655f-44df-9a73-d04c8a6389d1,How does parallel processing improve computational efficiency in spatial analysis tasks?,abstractive,text-table,2412.11355v2,11,8,0.0,0.0,0.0,0.0,0.0,0.0
+bf1a9bee-f1ce-46cd-8626-c07310c40761,How can advanced methodologies enhance fairness and validity in assessing diverse populations' health outcomes?,abstractive,text,2408.13702v3,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+55d494f1-45e2-49a2-9d34-b8e28e3734ab,What is the purpose of the GenoTEX benchmark?,abstractive,text,2406.15341v3,3,8,0.0,0.0,1.0,1.0,0.2,0.38685280723454163
+c6ffb9cd-96d5-4b7a-91eb-a7d38bfecd42,Does the GHT match the conventional Hilbert transform on non-overlapping cycles?,extractive,text,2412.18501v3,8,8,1.0,1.0,1.0,1.0,1.0,1.0
+93f127e9-06a2-47b9-b0d9-4f69e1cc670a,How do gene interaction networks contribute to understanding bacterial colonization processes?,abstractive,text-table-image,2405.05998v3,3,8,1.0,1.0,1.0,1.0,1.0,1.0
+f21aad6a-3c5f-453f-b408-1c99f805d0c8,What are the key differences in performance between various forecasting models for US industrial production?,abstractive,text-table-image,2407.13314v3,35,8,1.0,1.0,1.0,1.0,1.0,1.0
+fa5abf3c-299a-47c8-9f78-5a03c0b7f61a,What is the purpose of using spectral diffusion in diffusion MRI?,abstractive,text,2408.06427v2,7,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+c1ee6339-4289-403b-a99a-3e9fad4e8b7d,Is it optimal for the agent to engage in the search if $p v > c(0)$?,extractive,text,2412.03227v2,3,8,1.0,1.0,1.0,1.0,1.0,1.0
+1f8ca9df-c2c5-4939-8a9e-f2aa9bb544c2,Does dataset filtering involve verifying the availability of gene expression data?,extractive,text,2406.15341v3,5,8,1.0,1.0,1.0,1.0,1.0,1.0
+23c823f0-4e52-4174-8cbf-ecd68d597d51,In what ways do imagined story continuations complement existing feature engineering techniques?,abstractive,text,2412.15239v2,1,8,1.0,1.0,1.0,1.0,1.0,1.0
+3ef5af1d-46bb-435e-bcd3-ef0dbeecad22,What are the differences in effective degrees of freedom (EDF) among various low-rank models used for spatial confounding mitigation?,abstractive,text-table-image,2403.05373v2,24,8,1.0,1.0,1.0,1.0,1.0,1.0
+ca151c1f-0dbd-4f9a-8a42-9a3ea1f33922,What role do derived blowups play in generating lafp $U$-modifications?,abstractive,text-image,2407.04378v2,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+c0ccce2d-fa43-4259-9870-916f8e8e2228,Why is controlling energy flow at the micro-scale important for quantum technologies?,abstractive,text-image,2401.17469v2,0,8,1.0,1.0,1.0,1.0,1.0,1.0
+58ee5bb5-32d5-46cb-86ab-d571a372d0ed,What is the formula for calculating water transport time (WTT)?,extractive,text,2408.06427v2,5,8,1.0,1.0,1.0,1.0,1.0,1.0
+703b7f6b-eaf7-447b-a13d-43fd23fe208d,How does Pol.is facilitate consensus-building in discussions?,abstractive,text-image,2407.11613v2,9,8,0.0,1.0,1.0,1.0,0.5,0.6309297535714575
+94932526-4983-4caa-b8bc-de65c672901d,What is the purpose of using multilevel modeling in DIF analysis for health survey data?,abstractive,text,2408.13702v3,10,8,1.0,1.0,1.0,1.0,1.0,1.0
+9629e6d7-f42f-4d78-8b66-a3f1dd60cbed,How does the CMGF method improve upon traditional methods for calculating moments?,abstractive,text,2410.23587v3,8,8,1.0,1.0,1.0,1.0,1.0,1.0
+716dd8f3-fddc-441f-9ba0-4df6523aed12,Is it true that only approximate solutions exist for general feedback games with nonconvex costs and constraints?,extractive,text,2410.16441v2,2,8,1.0,1.0,1.0,1.0,1.0,1.0
+26fff9f0-f324-422e-9bd6-62364dee5dcd,Is it necessary for all PAs to have equal phases for each device to maximize data rate?,extractive,text,2412.13892v2,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+5885e062-72ee-460c-aea6-5be13d3bc4cc,Is the function \(X(t)\) Fourier transformable when \(a < 0\)?,extractive,text,2411.11402v4,4,8,1.0,1.0,1.0,1.0,1.0,1.0
+75dfb440-63b2-4a2d-80cb-444ca478dde3,What is the number of contigs per sample for host environments?,extractive,text-image,2405.05998v3,2,8,1.0,1.0,1.0,1.0,1.0,1.0
+409f1754-5c7e-433f-80d5-fcacbc2f795e,How does Redundant Information Distillation (RID) improve upon traditional knowledge distillation methods?,abstractive,text,2411.07483v2,0,8,0.0,0.0,1.0,1.0,0.25,0.43067655807339306

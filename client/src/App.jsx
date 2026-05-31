@@ -2106,7 +2106,7 @@ function MainApp({ session }) {
                         <>
                           <option value="llama3.2:3b">Llama 3.2 (Local)</option>
                           <option value="gemma3:4b">Gemma 3 4B (Local)</option>
-                          <option value="llama-3.1-70b-versatile">Llama 3.1 70B (Groq)</option>
+                          <option value="llama-3.3-70b-specdec">Llama 3.3 70B (Groq)</option>
                           <option value="gemma2-9b-it">Gemma 2 9B (Groq)</option>
                           <option value="mixtral-8x7b-32768">Mixtral 8x7B (Groq)</option>
                         </>
