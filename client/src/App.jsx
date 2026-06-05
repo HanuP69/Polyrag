@@ -755,6 +755,7 @@ function MainApp({ session }) {
   }, []);
 
   const getFileIcon = (name) => {
+    if (!name) return "[?]";
     const ext = name.split(".").pop().toLowerCase();
     if (ext === "pdf") return "[PDF]";
     if (ext === "csv") return "[CSV]";

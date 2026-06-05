@@ -86,8 +86,10 @@ export async function uploadGithub(repoUrl, orgId = "default") {
 }
 
 export async function getIngestStatus(fileId) {
+  if (!fileId) throw new Error("No fileId");
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/ingest/${fileId}`, { headers });
+  if (!res.ok) throw new Error(`Status check failed (${res.status})`);
   return res.json();
 }
 
@@ -113,7 +115,9 @@ export async function getModels() {
 export async function getIngestedFiles(orgId = "default") {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/files?org_id=${orgId}`, { headers });
-  return res.json();
+  if (!res.ok) return [];
+  const data = await res.json();
+  return Array.isArray(data) ? data : [];
 }
 
 export async function deleteFile(fileId, orgId = "default") {
