@@ -64,6 +64,10 @@ export async function uploadFile(file, orgId = "default") {
   form.append("org_id", orgId);
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}/api/ingest`, { method: "POST", headers, body: form });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Upload failed (${res.status}): ${errText}`);
+  }
   return res.json();
 }
 
@@ -74,6 +78,10 @@ export async function uploadGithub(repoUrl, orgId = "default") {
     headers,
     body: JSON.stringify({ repo_url: repoUrl, org_id: orgId }),
   });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`GitHub upload failed (${res.status}): ${errText}`);
+  }
   return res.json();
 }
 
