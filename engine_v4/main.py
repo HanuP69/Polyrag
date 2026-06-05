@@ -88,12 +88,8 @@ app.add_middleware(
 
 # ── Request Models ───────────────────────────────────────────────────────────
 
-class GateRequest(BaseModel):
-    query: str
-
 class RetrieveRequest(BaseModel):
     query: str
-    expert_id: str = "text"
     org_id: str = "default"
     top_k: int = 10
     file_ids: Optional[List[str]] = None
@@ -115,7 +111,6 @@ class GuardRequest(BaseModel):
 class FeedbackRequest(BaseModel):
     query_log_id: str = ""
     rating: int = 0
-    correct_expert: Optional[str] = None
 
 
 # ── Health ───────────────────────────────────────────────────────────────────
@@ -128,8 +123,6 @@ async def health():
         "llm": CFG.text_model,
         "embedder": CFG.embedder_model,
         "reranker": CFG.reranker_model,
-        "experts_loaded": ["text", "table", "image"],
-        "gate_loaded": True,
     }
 
 
@@ -147,50 +140,47 @@ async def pipeline_health():
 
 @app.get("/models")
 async def list_models():
-    return {"models": {
-        CFG.text_model: {"type": "ollama", "purpose": "generation"},
-        CFG.caption_model: {"type": "ollama", "purpose": "captioning"},
-        CFG.embedder_model: {"type": "huggingface", "purpose": "embedding"},
-        CFG.reranker_model: {"type": "huggingface", "purpose": "reranking"},
-    }}
+    """Return model registry in the format the frontend expects:
+    { models: { model_key: { display, group, caps, type } } }
+    """
+    models = {
+        # ── Local Ollama models ──────────────────────────────────────────
+        CFG.text_model: {
+            "type": "ollama",
+            "display": CFG.text_model,
+            "group": "Local (Ollama)",
+            "caps": ["text"],
+        },
+        CFG.caption_model: {
+            "type": "ollama",
+            "display": f"{CFG.caption_model} (Vision)",
+            "group": "Local (Ollama)",
+            "caps": ["text", "vision"],
+        },
+    }
 
+    # ── Gemini (if API key set) ──────────────────────────────────────
+    if CFG.gemini_api_key:
+        models[CFG.gemini_model] = {
+            "type": "gemini",
+            "display": f"{CFG.gemini_model} ☁",
+            "group": "Cloud (Gemini)",
+            "caps": ["text", "vision"],
+        }
 
-# ── Gate (v4: no MoE, return equal weights) ──────────────────────────────────
-
-@app.post("/gate")
-async def gate_route(req: GateRequest):
-    weights = {"text": 0.33, "table": 0.33, "image": 0.33}
-    return {"weights": weights, "raw": weights}
+    return {"models": models}
 
 
 # ── Retrieval ────────────────────────────────────────────────────────────────
 
 @app.post("/retrieve")
 async def retrieve_endpoint(req: RetrieveRequest):
-    """Dense (pgvector) retrieval for a specific modality."""
     loop = asyncio.get_event_loop()
     chunks = await loop.run_in_executor(
         _io_pool,
         lambda: v4_retrieve(req.query, req.org_id, req.top_k, req.file_ids)
     )
-    # Filter by expert_id/modality if specified
-    if req.expert_id and req.expert_id != "all":
-        filtered = [c for c in chunks if c.get("modality") == req.expert_id or c.get("expert_id") == req.expert_id]
-        if filtered:
-            chunks = filtered
     return {"chunks": chunks[:req.top_k]}
-
-
-@app.post("/retrieve/bm25")
-async def retrieve_bm25_endpoint(req: RetrieveRequest):
-    """BM25 sparse retrieval (already part of hybrid in v4, but exposed separately for compat)."""
-    # In v4, BM25 is fused into the hybrid pipeline. For compat, we run retrieve too.
-    loop = asyncio.get_event_loop()
-    chunks = await loop.run_in_executor(
-        _io_pool,
-        lambda: v4_retrieve(req.query, req.org_id, req.top_k, req.file_ids)
-    )
-    return {"chunks": chunks[:req.top_k], "total": len(chunks)}
 
 
 # ── Rerank ───────────────────────────────────────────────────────────────────
@@ -299,8 +289,13 @@ async def ingest_async(
     def run_ingest():
         try:
             result = ingest_file(file_path, file_id, org_id)
+            # Normalize: ingest returns "completed", frontend expects "indexed"
+            final_status = "indexed" if result.get("status") == "completed" else result.get("status", "indexed")
+            result["status"] = final_status
+            result["file_id"] = file_id
+            result["id"] = file_id  # frontend uses file.id
             _ingestion_status[file_id] = result
-            db.update_file_status(file_id, result.get("status", "completed"),
+            db.update_file_status(file_id, final_status,
                                   result.get("chunk_count", 0))
         except Exception as e:
             print(f"[Ingest] Error: {e}")

@@ -19,15 +19,10 @@ const client = axios.create({
   httpAgent: keepAliveAgent,
 });
 
-async function gate(query) {
-  const { data } = await client.post("/gate", { query });
-  return data;
-}
 
-async function retrieve(query, expertId, orgId, topK = 10, fileIds = null) {
+async function retrieve(query, orgId, topK = 10, fileIds = null) {
   const body = {
     query,
-    expert_id: expertId,
     org_id: orgId,
     top_k: topK,
   };
@@ -36,17 +31,6 @@ async function retrieve(query, expertId, orgId, topK = 10, fileIds = null) {
   return data;
 }
 
-async function retrieveBM25(query, expertId, orgId, topK = 5, fileIds = null) {
-  const body = {
-    query,
-    expert_id: expertId,
-    org_id: orgId,
-    top_k: topK,
-  };
-  if (fileIds && fileIds.length > 0) body.file_ids = fileIds;
-  const { data } = await client.post("/retrieve/bm25", body, { headers: { "x-tenant-id": orgId } });
-  return data;
-}
 
 async function rerankChunks(query, chunks) {
   const { data } = await client.post("/rerank", { query, chunks });
@@ -105,11 +89,10 @@ async function updateOrgConfig(orgId, name, config) {
   return data;
 }
 
-async function submitFeedback(queryLogId, rating, correctExpert = null, orgId = "default") {
+async function submitFeedback(queryLogId, rating, orgId = "default") {
   const { data } = await client.post("/feedback", {
     query_log_id: queryLogId,
     rating,
-    correct_expert: correctExpert,
   }, { headers: { "x-tenant-id": orgId } });
   return data;
 }
@@ -185,9 +168,7 @@ async function deleteAllChatSessions(orgId) {
 }
 
 module.exports = {
-  gate,
   retrieve,
-  retrieveBM25,
   rerankChunks,
   guard,
   streamGenerate,

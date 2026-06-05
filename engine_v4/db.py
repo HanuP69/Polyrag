@@ -400,6 +400,24 @@ def update_file_status(file_id: str, status: str, chunk_count: int = 0, error: s
     conn.close()
 
 
+def _normalize_file(row_dict: dict) -> dict:
+    """Normalize DB file row to match frontend expectations.
+    Frontend uses: file.id, file.status === 'indexed', file.filename
+    DB stores:     file_id, status = 'completed', name
+    """
+    d = dict(row_dict)
+    # file_id → id (frontend uses file.id everywhere)
+    if "file_id" in d and "id" not in d:
+        d["id"] = d["file_id"]
+    # name → filename
+    if "name" in d and "filename" not in d:
+        d["filename"] = d["name"]
+    # completed → indexed (frontend checks file.status === 'indexed')
+    if d.get("status") == "completed":
+        d["status"] = "indexed"
+    return d
+
+
 def get_file(file_id: str) -> Optional[dict]:
     conn = get_conn()
     with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -408,11 +426,7 @@ def get_file(file_id: str) -> Optional[dict]:
     conn.close()
     if not row:
         return None
-    d = dict(row)
-    # Normalize column names for API compat
-    if "name" in d and "filename" not in d:
-        d["filename"] = d["name"]
-    return d
+    return _normalize_file(row)
 
 
 def get_org_files(org_id: str) -> List[dict]:
@@ -421,13 +435,7 @@ def get_org_files(org_id: str) -> List[dict]:
         cur.execute("SELECT * FROM files WHERE org_id = %s ORDER BY created_at DESC", (org_id,))
         rows = cur.fetchall()
     conn.close()
-    result = []
-    for r in rows:
-        d = dict(r)
-        if "name" in d and "filename" not in d:
-            d["filename"] = d["name"]
-        result.append(d)
-    return result
+    return [_normalize_file(r) for r in rows]
 
 
 def delete_file_and_chunks(org_id: str, file_id: str):

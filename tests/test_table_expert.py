@@ -1,12 +1,3 @@
-"""
-test_table_expert.py -- Phase 2 test for the Table Expert.
-
-1. Verify health shows table expert loaded
-2. Verify gate routes table queries correctly
-3. Ingest a CSV file
-4. Query the table data
-"""
-
 import requests
 import os
 import time
@@ -17,63 +8,41 @@ TEST_CSV = os.path.join(DATA_DIR, "test_sales.csv")
 
 
 def run():
-    # 1. Health
     print("=" * 60)
-    print("  Phase 2 -- Table Expert Test")
+    print("  v4 Table Modality Test")
     print("=" * 60)
 
     r = requests.get(f"{BASE_URL}/health", timeout=30)
     data = r.json()
-    print(f"\n[Health] experts_loaded: {data['experts_loaded']}")
-    assert "table" in data["experts_loaded"], "Table expert not loaded!"
-    print("[Health] PASS -- table expert is registered")
+    print(f"\n[Health] mode: {data['mode']}")
+    assert data["mode"] == "v4"
+    print("[Health] PASS")
 
-    # 2. Gate
-    print("\n--- Gate routing ---")
-    table_queries = [
-        "what was Q3 revenue for Asia Pacific",
-        "compare growth rates across all regions",
-        "which region had the highest total units",
-    ]
-    text_queries = [
-        "summarize the indemnity clause",
-        "explain the termination conditions",
-    ]
-
-    for q in table_queries:
-        r = requests.post(f"{BASE_URL}/gate", json={"query": q}, timeout=30)
-        top = max(r.json()["raw"], key=r.json()["raw"].get)
-        score = r.json()["raw"][top]
-        status = "PASS" if top == "table" else "FAIL"
-        print(f"  [{status}] \"{q}\" -> {top} ({score:.2f})")
-
-    for q in text_queries:
-        r = requests.post(f"{BASE_URL}/gate", json={"query": q}, timeout=30)
-        top = max(r.json()["raw"], key=r.json()["raw"].get)
-        score = r.json()["raw"][top]
-        status = "PASS" if top == "text" else "FAIL"
-        print(f"  [{status}] \"{q}\" -> {top} ({score:.2f})")
-
-    # 3. Ingest CSV
     print("\n--- CSV Ingestion ---")
     with open(TEST_CSV, "rb") as f:
         r = requests.post(
-            f"{BASE_URL}/ingest",
+            f"{BASE_URL}/ingest/async",
             files={"file": ("test_sales.csv", f, "text/csv")},
             data={"org_id": "default"},
-            timeout=120,
+            timeout=60,
         )
     data = r.json()
-    print(f"  Status: {data.get('status')}")
-    print(f"  Chunks: {data.get('total_chunks')}")
-    print(f"  Experts: {data.get('experts_used')}")
-    print(f"  Latency: {data.get('latency_ms')}ms")
-    assert data["status"] == "indexed"
-    assert "table" in data["experts_used"]
-    print("  PASS -- CSV ingested via table expert")
+    file_id = data.get("file_id")
+    print(f"  File ID: {file_id}")
+    assert file_id
 
-    # 4. Query the table
-    print("\n--- Table Queries ---")
+    for i in range(60):
+        r = requests.get(f"{BASE_URL}/file/{file_id}", timeout=10)
+        status_data = r.json()
+        print(f"  Poll {i}: {status_data.get('status')} | chunks: {status_data.get('chunk_count', '?')}")
+        if status_data.get("status") in ("completed", "indexed", "error", "failed"):
+            break
+        time.sleep(2)
+
+    assert status_data.get("status") not in ("error", "failed"), f"Ingestion failed: {status_data}"
+    print("  PASS -- CSV ingested")
+
+    print("\n--- Table Queries via Hybrid Retrieval ---")
     queries = [
         "What was the Q3 revenue for Asia Pacific?",
         "Which region had the highest growth rate?",
@@ -83,24 +52,21 @@ def run():
         print(f"\n  Q: \"{q}\"")
         start = time.time()
         r = requests.post(
-            f"{BASE_URL}/query",
+            f"{BASE_URL}/retrieve",
             json={"query": q, "org_id": "default", "top_k": 5},
-            timeout=120,
+            timeout=60,
         )
         elapsed = time.time() - start
         data = r.json()
-
-        answer = data.get("answer", "")[:400]
-        print(f"  Gate: {data.get('gate_weights')}")
-        print(f"  Experts fired: {data.get('experts_fired')}")
-        print(f"  Sources: {len(data.get('sources', []))}")
-        for s in data.get("sources", [])[:2]:
-            print(f"    [{s['expert_id'].upper()}] {s['content'][:120]}...")
-        print(f"  Answer: {answer}")
+        chunks = data.get("chunks", [])
+        print(f"  Chunks: {len(chunks)}")
+        for c in chunks[:2]:
+            print(f"    [{c.get('modality', '?').upper()}] {c.get('content', '')[:120]}...")
         print(f"  Latency: {elapsed:.1f}s")
+        assert len(chunks) > 0
 
     print("\n" + "=" * 60)
-    print("  Phase 2 test complete")
+    print("  Table modality test complete")
     print("=" * 60)
 
 

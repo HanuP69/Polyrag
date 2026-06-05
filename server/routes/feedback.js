@@ -3,7 +3,7 @@ const router = express.Router();
 const engine = require("../services/engine");
 
 router.post("/api/feedback", async (req, res) => {
-  const { query_log_id, rating, correct_expert } = req.body;
+  const { query_log_id, rating } = req.body;
   const orgId = req.user?.id || "default";
 
   if (!query_log_id || rating === undefined) {
@@ -11,7 +11,7 @@ router.post("/api/feedback", async (req, res) => {
   }
 
   try {
-    const result = await engine.submitFeedback(query_log_id, rating, correct_expert, orgId);
+    const result = await engine.submitFeedback(query_log_id, rating, orgId);
     res.json(result);
   } catch (err) {
     res.status(500).json({ error: err.message });

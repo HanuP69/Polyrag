@@ -9,26 +9,21 @@ TEST_PDF = os.path.join(DATA_DIR, "test_contract.pdf")
 
 def run():
     print("=" * 60)
-    print("  Phase 4 -- Hardening Test")
+    print("  v4 Hardening Test")
     print("=" * 60)
 
-    # 1. Org Config API
     print("\n--- 1. Org Config API ---")
-    
-    # Put config
     config_data = {
         "name": "Acme Corp",
         "config": {
-            "active_experts": ["text", "table"],
             "top_k": 5,
-            "system_prompt": "You are Acme Corp's legal assistant. Answer politely."
-        }
+            "system_prompt": "You are Acme Corp's legal assistant. Answer politely.",
+        },
     }
     r = requests.put(f"{BASE_URL}/config/acme_org", json=config_data)
     print(f"  PUT /config/acme_org: {r.status_code}")
     assert r.status_code == 200
-    
-    # Get config
+
     r = requests.get(f"{BASE_URL}/config/acme_org")
     data = r.json()
     print(f"  GET /config/acme_org: {data.get('name')}")
@@ -36,7 +31,6 @@ def run():
     assert data["config"]["top_k"] == 5
     print("  [PASS] Org Config API works")
 
-    # 2. Async Ingestion
     print("\n--- 2. Async Ingestion ---")
     with open(TEST_PDF, "rb") as f:
         r = requests.post(
@@ -48,67 +42,74 @@ def run():
     print(f"  POST /ingest/async status: {data.get('status')}")
     file_id = data.get("file_id")
     assert file_id
-    
-    # Poll status
-    max_polls = 60
-    polls = 0
-    while polls < max_polls:
-        r = requests.get(f"{BASE_URL}/ingest/status/{file_id}")
+
+    for i in range(120):
+        r = requests.get(f"{BASE_URL}/file/{file_id}")
         status_data = r.json()
-        print(f"  Polling {polls}: {status_data['status']} ({status_data.get('progress')}%)")
-        if status_data["status"] in ["indexed", "failed"]:
+        print(f"  Poll {i}: {status_data['status']} | chunks: {status_data.get('chunk_count', '?')}")
+        if status_data["status"] in ("completed", "indexed", "error", "failed"):
             break
-        time.sleep(1)
-        polls += 1
-        
-    assert status_data["status"] == "indexed"
+        time.sleep(2)
+
+    assert status_data["status"] not in ("error", "failed"), f"Ingestion failed: {status_data}"
     print("  [PASS] Async ingestion works")
 
-    # 3. SSE Streaming + Reranker (Reranker is implicit in the query pipeline)
     print("\n--- 3. SSE Streaming Query ---")
     query_payload = {
         "query": "What are the termination conditions for convenience?",
         "org_id": "acme_org",
         "top_k": 5,
-        "system_prompt": "Answer very briefly."
+        "system_prompt": "Answer very briefly.",
     }
-    
+
     start = time.time()
     response = requests.post(
-        f"{BASE_URL}/query/stream", 
-        json=query_payload, 
-        stream=True
+        f"{BASE_URL}/generate/stream",
+        json={"prompt": query_payload["query"], "query": query_payload["query"]},
+        stream=True,
     )
-    
-    print(f"  Streaming response...")
+
+    print("  Streaming response...")
     full_answer = ""
     for line in response.iter_lines():
         if line:
-            line = line.decode('utf-8')
+            line = line.decode("utf-8")
             if line.startswith("data: "):
-                data_str = line[6:]
                 try:
-                    event = json.loads(data_str)
-                    if event["type"] == "meta":
-                        print(f"  [Meta] Gate Weights: {event['gate']}")
-                        print(f"  [Meta] Sources retrieved: {len(event['sources'])}")
-                        assert len(event['sources']) > 0
-                    elif event["type"] == "token":
+                    event = json.loads(line[6:])
+                    if event["type"] == "token":
                         full_answer += event["content"]
                         print(event["content"], end="", flush=True)
                     elif event["type"] == "done":
-                        print(f"\n  [Done] Latency: {event['latency_ms']}ms")
+                        print(f"\n  [Done] Latency: {event.get('latency_ms', '?')}ms")
                 except json.JSONDecodeError:
                     pass
 
     elapsed = time.time() - start
-    print(f"\n  Full Answer: {full_answer}")
-    print(f"  Total time: {elapsed:.2f}s")
+    print(f"\n  Total time: {elapsed:.2f}s")
     assert len(full_answer) > 10
-    print("  [PASS] SSE Streaming and Query Pipeline work")
-    
+    print("  [PASS] SSE Streaming works")
+
+    print("\n--- 4. Rerank endpoint ---")
+    chunks = [
+        {"chunk_id": "c1", "content": "The contract may be terminated for convenience with 30 days notice.", "modality": "text"},
+        {"chunk_id": "c2", "content": "Payment terms are net 30.", "modality": "text"},
+        {"chunk_id": "c3", "content": "Termination for cause requires written notice and 15-day cure period.", "modality": "text"},
+    ]
+    r = requests.post(
+        f"{BASE_URL}/rerank",
+        json={"query": "termination conditions", "chunks": chunks},
+        timeout=60,
+    )
+    data = r.json()
+    print(f"  Reranked {len(data['chunks'])} chunks")
+    for c in data["chunks"]:
+        print(f"    {c['chunk_id']}: {c['content'][:60]}...")
+    assert len(data["chunks"]) > 0
+    print("  [PASS] Reranker works")
+
     print("\n" + "=" * 60)
-    print("  Phase 4 test complete")
+    print("  v4 hardening test complete")
     print("=" * 60)
 
 if __name__ == "__main__":

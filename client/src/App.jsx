@@ -5,7 +5,7 @@ import Login from "./Login";
 import {
   queryStream, uploadFile, uploadGithub, getIngestStatus,
   submitFeedback, getPipelineHealth, getModels, getConfig,
-  updateConfig, getFiles, deleteFile, getDbHealth, forceRetrainGate,
+  updateConfig, getFiles, deleteFile, getDbHealth,
   getChatSessions, createChatSession, deleteChatSession, getChatMessages, addChatMessage
 } from "./api";
 
@@ -1584,9 +1584,6 @@ function MainApp({ session }) {
 
                 {msg.role === "assistant" && msg.meta && (
                   <div className="message-meta">
-                    {msg.meta.active_experts?.map(exp => (
-                      <span key={exp} className={`expert-badge ${exp}`}>{exp}</span>
-                    ))}
                     {msg.guard && (
                       <span className={`guard-badge ${msg.guard.verified ? "verified" : msg.guard.score > 0.5 ? "partial" : "unverified"}`}>
                         {msg.guard.verified ? "PASSED" : msg.guard.score > 0.5 ? "WARN" : "FAIL"}
@@ -1808,7 +1805,7 @@ function MainApp({ session }) {
                 {[
                   "Clear all records in chat search ledger",
                   "Open source registry panel to ingest or select documents",
-                  "Inspect current metrics, average latency and gate recommendation",
+                  "Inspect current metrics and average latency",
                   config.enablePlanner ? "Disable deep multihop contextual planning expert" : "Enable deep multihop contextual planning expert",
                   "Configure local LLM servers, Groq, Gemini keys & parser depth",
                   selectedFileIds.size > 0 ? "Clear active file filter constraints (default all)" : "Engage constraint filtering on all indexed materials"
@@ -2055,25 +2052,6 @@ function MainApp({ session }) {
                       </div>
                     </div>
                   </div>
-
-                  <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "6px", padding: "20px", background: "rgba(142, 125, 96, 0.02)", textAlign: "center" }}>
-                    <div className="sidebar-label" style={{ margin: "0 0 6px 0" }}>Gate Retrain Recommendation</div>
-                    <div style={{ fontSize: "13px", fontFamily: "var(--font-serif)", color: "var(--text-secondary)", marginBottom: "16px" }}>
-                      {health?.retrain_recommended
-                        ? "⚠️ Multiple unverified feedback patterns detected. System highly recommends forced database gate retraining."
-                        : "✓ Embedding space classification vectors are balanced. Manual retraining is optional."}
-                    </div>
-                    <button
-                      onClick={() => {
-                        forceRetrainGate()
-                          .then(() => alert("[SUCCESS] Embedding gate retraining triggered successfully."))
-                          .catch(() => alert("[ERROR] Retraining execution failed."));
-                      }}
-                      style={{ padding: "10px 24px", background: health?.retrain_recommended ? "var(--accent-rose)" : "var(--border-accent)", color: "var(--bg-primary)", border: "none", borderRadius: "4px", fontSize: "11px", fontFamily: "var(--font-mono)", fontWeight: "700", cursor: "pointer" }}
-                    >
-                      FORCE MANUAL GATE RETRAIN
-                    </button>
-                  </div>
                 </div>
               )}
 
@@ -2191,7 +2169,7 @@ const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
       {expanded && sources.map((s, i) => (
         <div className="source-card" key={i}>
           <div className="source-card-header">
-            <span className={`expert-badge ${s.expert_id}`}>{s.expert_id}</span>
+            <span className={`expert-badge ${s.modality || s.expert_id}`}>{s.modality || s.expert_id}</span>
             {s.metadata?.page && <span>Page {s.metadata.page}</span>}
             {s.metadata?.similarity && (
               <span style={{ color: "var(--text-muted)" }}>sim: {(s.metadata.similarity * 100).toFixed(1)}%</span>

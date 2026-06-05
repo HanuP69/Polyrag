@@ -83,12 +83,12 @@ export async function getIngestStatus(fileId) {
   return res.json();
 }
 
-export async function submitFeedback(queryLogId, rating, correctExpert = null) {
+export async function submitFeedback(queryLogId, rating) {
   const headers = await getAuthHeaders({ "Content-Type": "application/json" });
   const res = await fetch(`${API_BASE}/api/feedback`, {
     method: "POST",
     headers,
-    body: JSON.stringify({ query_log_id: queryLogId, rating, correct_expert: correctExpert }),
+    body: JSON.stringify({ query_log_id: queryLogId, rating }),
   });
   return res.json();
 }
@@ -148,23 +148,6 @@ export async function fetchDebugInfo(queryLogId, orgId = "default") {
   return res.json();
 }
 
-export async function forceRetrainGate(orgId = "default") {
-  const headers = await getAuthHeaders();
-  const res = await fetch(`${API_BASE}/api/admin/retrain-gate?org_id=${orgId}`, {
-    method: "POST",
-    headers,
-  });
-  return res.json();
-}
-
-export async function resetGate(orgId = "default") {
-  const headers = await getAuthHeaders();
-  const res = await fetch(`${API_BASE}/api/admin/reset-gate?org_id=${orgId}`, {
-    method: "POST",
-    headers,
-  });
-  return res.json();
-}
 
 export async function deleteQueryLog(queryLogId, orgId = "default") {
   const headers = await getAuthHeaders();

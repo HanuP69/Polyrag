@@ -1,11 +1,10 @@
-"""
-Create a simple test PDF for the PolyRAG pipeline.
-"""
 import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from engine.config import DATA_DIR
+from engine_v4.config import CFG
+
+DATA_DIR = CFG.upload_dir
 
 try:
     import fitz  # PyMuPDF

@@ -42,7 +42,7 @@ def strip_comments_and_docstrings(source_code):
     return "\n".join(cleaned_lines) + "\n"
 
 def main():
-    engine_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'engine')
+    engine_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'engine_v4')
     for filepath in glob.glob(os.path.join(engine_dir, '**', '*.py'), recursive=True):
         with open(filepath, 'r', encoding='utf-8') as f:
             source = f.read()

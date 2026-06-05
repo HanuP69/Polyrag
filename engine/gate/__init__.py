@@ -1,1 +1,0 @@
-# PolyRAG Gate module
