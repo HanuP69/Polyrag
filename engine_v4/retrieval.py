@@ -172,7 +172,7 @@ def retrieve(query: str, org_id: str = "default", top_k: int = 8,
         embed_query = hyde_expand(query, model=model, org_id=org_id)
 
     # 2. Embed
-    qvec = embedder.embed([embed_query])[0]
+    qvec = embedder.embed([embed_query], org_id)[0]
 
     # 3. Per-modality hybrid retrieval
     modal_results = {}
@@ -217,5 +217,5 @@ def retrieve(query: str, org_id: str = "default", top_k: int = 8,
 
     # 5. Rerank
     texts = [c.get("content", "") for c in candidates]
-    top_idxs = reranker.rerank(query, texts, min(top_k, len(candidates)))
+    top_idxs = reranker.rerank(query, texts, min(top_k, len(candidates)), org_id)
     return [candidates[i] for i in top_idxs]

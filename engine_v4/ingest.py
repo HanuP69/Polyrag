@@ -209,7 +209,7 @@ def ingest_file(file_path: str, file_id: str, org_id: str = "default", progress_
     total_batches = max(1, (len(texts) + BATCH - 1) // BATCH)
     for batch_idx, start in enumerate(range(0, len(texts), BATCH)):
         batch = texts[start : start + BATCH]
-        vecs = embedder.embed(batch)
+        vecs = embedder.embed(batch, org_id)
         all_vecs.append(vecs)
         # Progress from 45% to 70% during embedding
         embed_progress = 45 + int((batch_idx + 1) / total_batches * 25)

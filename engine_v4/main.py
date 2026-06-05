@@ -377,6 +377,8 @@ async def get_config(org_id: str):
     merged_cfg = {
         "groqApiKey": db_cfg.get("groqApiKey") or CFG.groq_api_key,
         "geminiApiKey": db_cfg.get("geminiApiKey") or CFG.gemini_api_key,
+        "embedderProvider": db_cfg.get("embedderProvider", "local"),
+        "rerankerProvider": db_cfg.get("rerankerProvider", "local"),
         "useLlmText": db_cfg.get("useLlmText", False),
         "useLlmCode": db_cfg.get("useLlmCode", False),
         "useLlmTable": db_cfg.get("useLlmTable", False)

@@ -23,9 +23,18 @@ class Embedder:
             self._model.max_seq_length = 512  # VRAM safety: limits 8192→512
             print(f"[Embedder] Loaded. max_seq_length={self._model.max_seq_length}")
 
-    def embed(self, texts: List[str]) -> np.ndarray:
+    def embed(self, texts: List[str], org_id: str = "default") -> np.ndarray:
         if not texts:
             return np.empty((0, 1024), dtype=np.float32)
+        
+        from engine_v4 import db
+        org_data = db.get_org_config(org_id) or {}
+        db_cfg = org_data.get("config", {})
+        provider = db_cfg.get("embedderProvider", "local")
+        
+        if provider == "gemini":
+            return self.embed_gemini(texts, org_id)
+
         self._load()
         vecs = self._model.encode(
             texts,
@@ -34,6 +43,42 @@ class Embedder:
             show_progress_bar=False,
         )
         return vecs.astype(np.float32)
+
+    def embed_gemini(self, texts: List[str], org_id: str = "default") -> np.ndarray:
+        from engine_v4 import db
+        org_data = db.get_org_config(org_id) or {}
+        db_cfg = org_data.get("config", {})
+        api_key = db_cfg.get("geminiApiKey") or CFG.gemini_api_key
+        if not api_key:
+            raise ValueError("Gemini API key not set in configuration or organization settings.")
+        
+        import requests
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        
+        requests_list = []
+        for text in texts:
+            requests_list.append({
+                "model": "models/text-embedding-004",
+                "content": {
+                    "parts": [{"text": text}]
+                }
+            })
+        
+        payload = {"requests": requests_list}
+        r = requests.post(url, json=payload, headers=headers, timeout=60)
+        r.raise_for_status()
+        
+        embeddings = []
+        for emb in r.json().get("embeddings", []):
+            vector = emb.get("values", [])
+            # Pad from 768 to 1024 dimensions with zeros
+            if len(vector) < 1024:
+                vector = vector + [0.0] * (1024 - len(vector))
+            elif len(vector) > 1024:
+                vector = vector[:1024]
+            embeddings.append(vector)
+        return np.array(embeddings, dtype=np.float32)
 
     def to_cpu(self):
         """Move model to CPU to free VRAM."""
@@ -88,10 +133,20 @@ class Reranker:
             )
             print("[Reranker] Loaded.")
 
-    def rerank(self, query: str, texts: List[str], top_n: int) -> List[int]:
+    def rerank(self, query: str, texts: List[str], top_n: int, org_id: str = "default") -> List[int]:
         """Returns indices sorted by descending score, limited to top_n."""
         if not texts:
             return []
+
+        from engine_v4 import db
+        org_data = db.get_org_config(org_id) or {}
+        db_cfg = org_data.get("config", {})
+        provider = db_cfg.get("rerankerProvider", "local")
+
+        if provider == "none":
+            # Bypass reranking: return original index order
+            return list(range(min(top_n, len(texts))))
+
         self._load()
         top_n = min(top_n, len(texts))
         pairs = [(query, t) for t in texts]

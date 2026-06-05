@@ -2246,6 +2246,31 @@ function MainApp({ session }) {
                       </div>
                     </div>
                   </div>
+
+                  <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "6px", padding: "16px", background: "var(--bg-card)", marginTop: "16px" }}>
+                    <div className="sidebar-label" style={{ margin: "0 0 12px 0" }}>Pipeline Model Configuration</div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                      <div>
+                        <label style={{ display: "block", fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--text-muted)", marginBottom: "4px" }}>EMBEDDING MODEL</label>
+                        <select value={config.embedderProvider || "local"} onChange={e => handleConfigChange("embedderProvider", e.target.value)}
+                          style={{ width: "100%", padding: "6px 10px", borderRadius: "4px", border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "11px", fontFamily: "var(--font-mono)", cursor: "pointer" }}>
+                          <option value="local">Local BGE-M3 (1024-dim)</option>
+                          <option value="gemini">Gemini text-embedding-004 (768-dim, Zero-Padded)</option>
+                        </select>
+                        <span style={{ fontSize: "9px", color: "var(--accent-amber)", marginTop: "4px", display: "block" }}>
+                          ⚠️ Changing embedder requires clearing and re-ingesting your files.
+                        </span>
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--text-muted)", marginBottom: "4px" }}>RERANKER MODE</label>
+                        <select value={config.rerankerProvider || "local"} onChange={e => handleConfigChange("rerankerProvider", e.target.value)}
+                          style={{ width: "100%", padding: "6px 10px", borderRadius: "4px", border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "11px", fontFamily: "var(--font-mono)", cursor: "pointer" }}>
+                          <option value="local">Local BGE-Reranker (Enabled)</option>
+                          <option value="none">Disabled (Bypassed — Saves ~1.5GB VRAM/RAM)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>
