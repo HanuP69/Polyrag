@@ -15,6 +15,9 @@ const MarkdownRenderer = ({ content, sources }) => {
   if (!content) return null;
 
   let resolvedContent = content;
+  if (typeof resolvedContent === "string") {
+    resolvedContent = resolvedContent.replace(/\\n/g, "\n");
+  }
   if (sources && sources.length > 0) {
     // Replace short references like source_1 or /api/uploads/source_1 or source_N
     resolvedContent = resolvedContent.replace(/(?:\/api\/uploads\/)?source_(\d+)/gi, (match, p1) => {
@@ -252,7 +255,7 @@ const MarkdownRenderer = ({ content, sources }) => {
             renderedLines.push(
               <ul key={`ul-${key}`} className="markdown-list" style={{ paddingLeft: "20px", margin: "8px 0" }}>
                 {listItems.map((item, idx) => (
-                  <li key={idx} style={{ margin: "4px 0" }}>{renderInline(item)}</li>
+                  <li key={idx} style={{ margin: "4px 0", whiteSpace: "pre-wrap" }}>{renderInline(item)}</li>
                 ))}
               </ul>
             );
@@ -265,12 +268,8 @@ const MarkdownRenderer = ({ content, sources }) => {
         const flushPara = (key) => {
           if (currentPara.length > 0) {
             renderedLines.push(
-              <p key={`p-${key}`} style={{ margin: "0 0 12px 0", lineHeight: "1.6" }}>
-                {currentPara.map((lineText, idx) => (
-                  <span key={idx} style={{ display: "block" }}>
-                    {renderInline(lineText)}
-                  </span>
-                ))}
+              <p key={`p-${key}`} style={{ margin: "0 0 12px 0", lineHeight: "1.6", whiteSpace: "pre-wrap" }}>
+                {renderInline(currentPara.join("\n"))}
               </p>
             );
             currentPara = [];
@@ -304,7 +303,7 @@ const MarkdownRenderer = ({ content, sources }) => {
             const num = trimmed.match(/^\d+/)?.[0] || "1";
             renderedLines.push(<div key={i} className="list-item-numbered" style={{ margin: "6px 0", display: "flex", gap: "8px" }}>
               <span style={{ fontWeight: "bold", color: "var(--accent-emerald)" }}>{num}.</span>
-              <div>{renderInline(content)}</div>
+              <div style={{ whiteSpace: "pre-wrap" }}>{renderInline(content)}</div>
             </div>);
           } else if (trimmed === "") {
             flushList(i);
