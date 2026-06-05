@@ -32,14 +32,14 @@ except ImportError:
 
 
 def _get(section: str, key: str, env_var: str = "", default=""):
-    """Resolve config value: config file → env var → default."""
-    # 1. Config file (nested: section.key)
+    """Resolve config value: env var → config file → default."""
+    # 1. Environment variable
+    if env_var and os.getenv(env_var):
+        return os.getenv(env_var)
+    # 2. Config file (nested: section.key)
     section_data = _file_cfg.get(section, {})
     if key in section_data:
         return section_data[key]
-    # 2. Environment variable
-    if env_var and os.getenv(env_var):
-        return os.getenv(env_var)
     # 3. Default
     return default
 
