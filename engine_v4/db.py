@@ -556,16 +556,18 @@ def update_file_status(file_id: str, status: str, chunk_count: int = 0, error: s
 
 def _normalize_file(row_dict: dict) -> dict:
     """Normalize DB file row to match frontend expectations.
-    Frontend uses: file.id, file.status === 'indexed', file.filename
+    Frontend uses: file.id, file.name, file.filename, file.status === 'indexed'
     DB stores:     file_id, status = 'completed', name
     """
     d = dict(row_dict)
     # file_id → id (frontend uses file.id everywhere)
     if "file_id" in d and "id" not in d:
         d["id"] = d["file_id"]
-    # name → filename
+    # Ensure both 'name' and 'filename' exist (frontend uses file.name)
     if "name" in d and "filename" not in d:
         d["filename"] = d["name"]
+    elif "filename" in d and "name" not in d:
+        d["name"] = d["filename"]
     # completed → indexed (frontend checks file.status === 'indexed')
     if d.get("status") == "completed":
         d["status"] = "indexed"

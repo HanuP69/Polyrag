@@ -17,7 +17,7 @@ async function getAuthHeaders(headers = {}) {
   return headers;
 }
 
-export async function queryStream(query, orgId = "default", model = "llama3.2:3b", chatHistory = [], fileIds = [], onMeta, onToken, onGuard, onDone) {
+export async function queryStream(query, orgId = "default", model = "gemini-2.5-flash", chatHistory = [], fileIds = [], onMeta, onToken, onGuard, onDone) {
   const headers = await getAuthHeaders({ "Content-Type": "application/json" });
   const body = { query, org_id: orgId, model, chat_history: chatHistory };
   if (fileIds && fileIds.length > 0) body.file_ids = fileIds;
