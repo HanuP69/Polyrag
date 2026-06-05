@@ -1,15 +1,15 @@
 const path = require('path');
-require('dotenv').config({ path: path.resolve(__dirname, '../../client/.env') });
+const config = require('../services/config');
 
 // LOCAL_DEV mode: skip Supabase auth and use a default local user.
 // Set LOCAL_DEV=false and configure Supabase env vars for production.
-const LOCAL_DEV = process.env.LOCAL_DEV !== 'false';
+const LOCAL_DEV = config.LOCAL_DEV;
 
 let supabase = null;
 if (!LOCAL_DEV) {
   const { createClient } = require('@supabase/supabase-js');
-  const supabaseUrl = process.env.VITE_SUPABASE_URL;
-  const supabaseKey = process.env.VITE_SUPABASE_ANON_KEY;
+  const supabaseUrl = config.SUPABASE_URL;
+  const supabaseKey = config.SUPABASE_KEY;
   if (supabaseUrl && supabaseKey) {
     supabase = createClient(supabaseUrl, supabaseKey);
   }

@@ -26,7 +26,7 @@ from engine_v4.config import CFG
 from engine_v4 import db
 from engine_v4.models import embedder, reranker
 from engine_v4.retrieval import load_indexes, retrieve as v4_retrieve
-from engine_v4.ollama import ollama_chat_stream, ollama_chat, ollama_unload_all
+from engine_v4.ollama import llm_chat_stream, llm_chat, ollama_unload_all
 from engine_v4.guard import verify_answer
 from engine_v4.ingest import ingest_file
 
@@ -147,7 +147,7 @@ async def list_models():
         # ── Local Ollama models ──────────────────────────────────────────
         CFG.text_model: {
             "type": "ollama",
-            "display": CFG.text_model,
+            "display": f"{CFG.text_model} (Local)",
             "group": "Local (Ollama)",
             "caps": ["text"],
         },
@@ -157,17 +157,33 @@ async def list_models():
             "group": "Local (Ollama)",
             "caps": ["text", "vision"],
         },
-    }
-
-    # ── Gemini (if API key set) ──────────────────────────────────────
-    if CFG.gemini_api_key:
-        models[CFG.gemini_model] = {
+        # ── Groq Models ──────────────────────────────────────────────────
+        "llama-3.3-70b-specdec": {
+            "type": "groq",
+            "display": "Llama 3.3 70B (Groq) ⚡",
+            "group": "Cloud (Groq)",
+            "caps": ["text"],
+        },
+        "gemma2-9b-it": {
+            "type": "groq",
+            "display": "Gemma 2 9B (Groq) ⚡",
+            "group": "Cloud (Groq)",
+            "caps": ["text"],
+        },
+        "mixtral-8x7b-32768": {
+            "type": "groq",
+            "display": "Mixtral 8x7B (Groq) ⚡",
+            "group": "Cloud (Groq)",
+            "caps": ["text"],
+        },
+        # ── Gemini Models ────────────────────────────────────────────────
+        CFG.gemini_model: {
             "type": "gemini",
-            "display": f"{CFG.gemini_model} ☁",
+            "display": f"{CFG.gemini_model} (Gemini) ☁",
             "group": "Cloud (Gemini)",
             "caps": ["text", "vision"],
         }
-
+    }
     return {"models": models}
 
 
@@ -222,7 +238,7 @@ async def generate_stream(req: GenerateRequest):
 
         def run_stream():
             tokens = []
-            for token in ollama_chat_stream(
+            for token in llm_chat_stream(
                 model, req.prompt,
                 chat_history=req.chat_history or [],
             ):
@@ -231,7 +247,7 @@ async def generate_stream(req: GenerateRequest):
             return tokens
 
         # Run streaming in sync, yield SSE events
-        for token in ollama_chat_stream(
+        for token in llm_chat_stream(
             model, req.prompt,
             chat_history=req.chat_history or [],
         ):
@@ -257,7 +273,7 @@ async def generate(req: GenerateRequest):
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         _io_pool,
-        lambda: ollama_chat(model, req.prompt, chat_history=req.chat_history or [])
+        lambda: llm_chat(model, req.prompt, chat_history=req.chat_history or [])
     )
     return {"response": result}
 
@@ -284,14 +300,24 @@ async def ingest_async(
     # Create file record
     ext = os.path.splitext(file.filename)[1].lower()
     db.create_file(file_id, org_id, file.filename, ext)
-    _ingestion_status[file_id] = {"status": "processing", "file_id": file_id}
+    _ingestion_status[file_id] = {"status": "processing", "progress": 0, "file_id": file_id}
 
     def run_ingest():
+        def progress_callback(pct: int, stage: str):
+            _ingestion_status[file_id] = {
+                "status": stage,
+                "progress": pct,
+                "file_id": file_id,
+                "id": file_id,
+                "stage": stage,
+            }
+
         try:
-            result = ingest_file(file_path, file_id, org_id)
+            result = ingest_file(file_path, file_id, org_id, progress_callback=progress_callback)
             # Normalize: ingest returns "completed", frontend expects "indexed"
             final_status = "indexed" if result.get("status") == "completed" else result.get("status", "indexed")
             result["status"] = final_status
+            result["progress"] = 100
             result["file_id"] = file_id
             result["id"] = file_id  # frontend uses file.id
             _ingestion_status[file_id] = result
@@ -299,7 +325,7 @@ async def ingest_async(
                                   result.get("chunk_count", 0))
         except Exception as e:
             print(f"[Ingest] Error: {e}")
-            _ingestion_status[file_id] = {"status": "error", "error": str(e)}
+            _ingestion_status[file_id] = {"status": "error", "progress": 0, "error": str(e)}
             db.update_file_status(file_id, "error", error=str(e))
 
     background_tasks.add_task(run_ingest)
@@ -330,6 +356,7 @@ async def list_files(org_id: str):
 async def delete_file(org_id: str, file_id: str):
     db.delete_file_and_chunks(org_id, file_id)
     # Rebuild BM25 indexes after deletion
+    db.rebuild_bm25(org_id)
     from engine_v4.retrieval import reload_indexes
     reload_indexes(org_id)
     return {"status": "ok", "file_id": file_id}
@@ -339,15 +366,51 @@ async def delete_file(org_id: str, file_id: str):
 
 @app.get("/config/{org_id}")
 async def get_config(org_id: str):
-    cfg = db.get_org_config(org_id)
-    if cfg:
-        return cfg
-    raise HTTPException(404, "Org not found")
+    org_data = db.get_org_config(org_id) or {}
+    db_cfg = org_data.get("config", {})
+    
+    # Merge with polyrag.config.json values as defaults
+    merged_cfg = {
+        "groqApiKey": db_cfg.get("groqApiKey") or CFG.groq_api_key,
+        "geminiApiKey": db_cfg.get("geminiApiKey") or CFG.gemini_api_key,
+        "useLlmText": db_cfg.get("useLlmText", False),
+        "useLlmCode": db_cfg.get("useLlmCode", False),
+        "useLlmTable": db_cfg.get("useLlmTable", False)
+    }
+    return {"org_id": org_id, "name": org_data.get("name", org_id), "config": merged_cfg}
 
 
 @app.put("/config/{org_id}")
 async def update_config(org_id: str, body: dict):
-    return db.update_org_config(org_id, body.get("name", ""), body.get("config", {}))
+    from pathlib import Path
+    new_config_data = body.get("config", {})
+    res = db.update_org_config(org_id, body.get("name", ""), new_config_data)
+    
+    # Synchronize to polyrag.config.json
+    try:
+        config_path = Path("polyrag.config.json")
+        if config_path.exists():
+            with open(config_path, "r") as f:
+                data = json.load(f)
+            
+            if "cloud" not in data:
+                data["cloud"] = {}
+            
+            if "groqApiKey" in new_config_data:
+                data["cloud"]["groq_api_key"] = new_config_data["groqApiKey"]
+            if "geminiApiKey" in new_config_data:
+                data["cloud"]["gemini_api_key"] = new_config_data["geminiApiKey"]
+                
+            with open(config_path, "w") as f:
+                json.dump(data, f, indent=2)
+                
+            CFG.groq_api_key = new_config_data.get("groqApiKey", CFG.groq_api_key)
+            CFG.gemini_api_key = new_config_data.get("geminiApiKey", CFG.gemini_api_key)
+            print(f"[Config] Synchronized settings to polyrag.config.json")
+    except Exception as e:
+        print(f"[Config] Error writing back to polyrag.config.json: {e}")
+        
+    return res
 
 
 # ── Feedback ─────────────────────────────────────────────────────────────────

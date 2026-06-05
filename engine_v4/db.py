@@ -11,10 +11,52 @@ import numpy as np
 
 from engine_v4.config import CFG
 
-# ── Connection ───────────────────────────────────────────────────────────────
+from psycopg2.pool import ThreadedConnectionPool
+
+# Threaded connection pool for resource reuse and preventing leaks
+_pool = None
+
+class PooledConnectionWrapper:
+    def __init__(self, pool, conn):
+        self._pool = pool
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def close(self):
+        if self._conn is not None:
+            try:
+                self._pool.putconn(self._conn)
+            except Exception:
+                pass
+            self._conn = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._conn is not None:
+            if exc_type is not None:
+                self._conn.rollback()
+            else:
+                self._conn.commit()
+            self.close()
 
 def get_conn():
-    return psycopg2.connect(CFG.pg_conn)
+    global _pool
+    if _pool is None:
+        try:
+            _pool = ThreadedConnectionPool(2, 20, CFG.pg_conn)
+            print("[DB] Threaded connection pool initialized successfully.")
+        except Exception as e:
+            print(f"[DB] Error initializing connection pool: {e}")
+            return psycopg2.connect(CFG.pg_conn)
+    try:
+        return PooledConnectionWrapper(_pool, _pool.getconn())
+    except Exception as e:
+        print(f"[DB] Connection pool acquisition failed: {e}. Falling back to direct connection.")
+        return psycopg2.connect(CFG.pg_conn)
 
 
 # ── Schema ───────────────────────────────────────────────────────────────────
@@ -45,7 +87,7 @@ CREATE TABLE IF NOT EXISTS embeddings (
 );
 CREATE INDEX IF NOT EXISTS idx_embed_hnsw
     ON embeddings USING hnsw (embedding vector_cosine_ops)
-    WITH (m=16, ef_construction=128);
+    WITH (m=32, ef_construction=200);
 
 CREATE TABLE IF NOT EXISTS bm25_store (
     modality    TEXT NOT NULL,
@@ -131,6 +173,10 @@ def init_db():
         "ALTER TABLE chunks ADD COLUMN IF NOT EXISTS section_id INTEGER NOT NULL DEFAULT 0",
         "ALTER TABLE bm25_store ADD COLUMN IF NOT EXISTS org_id TEXT NOT NULL DEFAULT 'default'",
         "ALTER TABLE chat_sessions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()",
+        "ALTER TABLE files ADD COLUMN IF NOT EXISTS error TEXT DEFAULT ''",
+        "ALTER TABLE files ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()",
+        "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS org_id TEXT NOT NULL DEFAULT 'default'",
+        "ALTER TABLE chat_messages ADD COLUMN IF NOT EXISTS sources JSONB DEFAULT '[]'",
     ]
     with conn.cursor() as cur:
         for sql in migrations:
@@ -139,6 +185,59 @@ def init_db():
                 conn.commit()
             except Exception:
                 conn.rollback()
+
+    # Migrate bm25_store: old engine uses PK(modality), v4 needs PK(modality, org_id)
+    with conn.cursor() as cur:
+        try:
+            cur.execute("""
+                SELECT array_agg(a.attname ORDER BY x.ordinality)
+                FROM pg_constraint con
+                JOIN pg_class rel ON rel.oid = con.conrelid
+                CROSS JOIN LATERAL unnest(con.conkey) WITH ORDINALITY AS x(attnum, ordinality)
+                JOIN pg_attribute a ON a.attrelid = rel.oid AND a.attnum = x.attnum
+                WHERE rel.relname = 'bm25_store' AND con.contype = 'p'
+                GROUP BY con.conname
+            """)
+            row = cur.fetchone()
+            if row and row[0] == ['modality']:
+                # Old PK: just (modality). Upgrade to composite (modality, org_id).
+                cur.execute("ALTER TABLE bm25_store DROP CONSTRAINT bm25_store_pkey")
+                cur.execute("ALTER TABLE bm25_store ADD PRIMARY KEY (modality, org_id)")
+                conn.commit()
+                print("[DB] Migrated bm25_store PK: (modality) -> (modality, org_id)")
+            else:
+                conn.rollback()
+        except Exception as e:
+            conn.rollback()
+            # Table may not exist yet (first run), that's fine
+            if "does not exist" not in str(e).lower():
+                print(f"[DB] bm25_store PK migration skipped: {e}")
+
+    # Upgrade idx_embed_hnsw if parameters are weaker than m=32, ef_construction=200
+    with conn.cursor() as cur:
+        try:
+            cur.execute("""
+                SELECT pg_get_indexdef(indexrelid)
+                FROM pg_index
+                WHERE indexrelid::regclass::text = 'idx_embed_hnsw'
+            """)
+            row = cur.fetchone()
+            if row:
+                def_str = row[0].lower()
+                def_str_clean = def_str.replace("'", "").replace('"', "")
+                if "m=32" not in def_str_clean or "ef_construction=200" not in def_str_clean:
+                    print("[DB] Upgrading idx_embed_hnsw index to m=32, ef_construction=200...")
+                    cur.execute("DROP INDEX IF EXISTS idx_embed_hnsw")
+                    cur.execute("""
+                        CREATE INDEX idx_embed_hnsw ON embeddings
+                        USING hnsw (embedding vector_cosine_ops)
+                        WITH (m=32, ef_construction=200)
+                    """)
+                    conn.commit()
+                    print("[DB] Index idx_embed_hnsw successfully upgraded.")
+        except Exception as e:
+            conn.rollback()
+            print(f"[DB] Failed checking/upgrading idx_embed_hnsw parameters: {e}")
 
     conn.close()
     print("[DB] Initialized.")
@@ -238,8 +337,32 @@ def store_bm25(chunks, org_id="default", conn=None):
         conn.commit()
         print(f"  [DB] BM25 stored: {modality} ({len(chunk_ids)} chunks, {len(blob)/1024:.1f}KB)")
 
-    if own_conn:
-        conn.close()
+
+def rebuild_bm25(org_id="default"):
+    """Rebuild BM25 index from scratch using all remaining chunks for the org."""
+    chunks_data = load_chunks(org_id)
+    all_chunks = list(chunks_data["chunk_lookup"].values())
+    if not all_chunks:
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM bm25_store WHERE org_id = %s", (org_id,))
+            conn.commit()
+        print(f"  [DB] Deleted BM25 indexes for org={org_id} (no chunks left)")
+    else:
+        # Delete any modalities that are no longer present for this org
+        modalities_present = {ch.modality for ch in all_chunks}
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                if modalities_present:
+                    placeholders = ", ".join(["%s"] * len(modalities_present))
+                    cur.execute(f"""
+                        DELETE FROM bm25_store 
+                        WHERE org_id = %s AND modality NOT IN ({placeholders})
+                    """, [org_id] + list(modalities_present))
+                else:
+                    cur.execute("DELETE FROM bm25_store WHERE org_id = %s", (org_id,))
+            conn.commit()
+        store_bm25(all_chunks, org_id)
 
 
 # ── Load from DB (for retrieval) ─────────────────────────────────────────────
@@ -318,6 +441,10 @@ def dense_search(query_vec: np.ndarray, modality: str, org_id: str = "default",
     conn = get_conn()
     vec_str = "[" + ",".join(str(v) for v in query_vec.tolist()) + "]"
     with conn.cursor() as cur:
+        try:
+            cur.execute("SET hnsw.ef_search = 64")
+        except Exception:
+            pass
         cur.execute("""
             SELECT c.chunk_id, c.doc_id, c.section_id, c.modality,
                    c.content, c.metadata, c.org_id, c.file_id,

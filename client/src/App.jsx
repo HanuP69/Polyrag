@@ -9,11 +9,25 @@ import {
   getChatSessions, createChatSession, deleteChatSession, getChatMessages, addChatMessage
 } from "./api";
 
-const MarkdownRenderer = ({ content }) => {
+const API_BASE = import.meta.env.VITE_API_URL || "";
+
+const MarkdownRenderer = ({ content, sources }) => {
   if (!content) return null;
 
+  let resolvedContent = content;
+  if (sources && sources.length > 0) {
+    // Replace short references like source_1 or /api/uploads/source_1 or source_N
+    resolvedContent = resolvedContent.replace(/(?:\/api\/uploads\/)?source_(\d+)/gi, (match, p1) => {
+      const idx = parseInt(p1) - 1;
+      if (sources[idx] && sources[idx].metadata?.source) {
+        return `/api/uploads/${sources[idx].metadata.source}`;
+      }
+      return match;
+    });
+  }
+
   // Split by "```" to handle code blocks elegantly
-  const parts = content.split("```");
+  const parts = resolvedContent.split("```");
   return (
     <div className="markdown-content">
       {parts.map((part, index) => {
@@ -94,8 +108,67 @@ const MarkdownRenderer = ({ content }) => {
           }
 
           let segments = [cleanedText];
-          // bold
+
+          // markdown images and uploads links: ![alt](url) or [alt](/api/uploads/...)
           let newSegments = [];
+          for (let seg of segments) {
+            if (typeof seg === "string") {
+              const subSegs = seg.split(/(!?\[.*?\]\(.*?\))/g);
+              newSegments.push(...subSegs.map((sub, i) => {
+                const imgMatch = sub.match(/^(!?)\[(.*?)\]\((.*?)\)$/);
+                if (imgMatch) {
+                  const hasExclamation = imgMatch[1] === "!";
+                  const alt = imgMatch[2];
+                  let url = imgMatch[3];
+                  
+                  // Render as image if it has '!' OR if the URL is an upload image
+                  const isUploadImage = url.includes("/api/uploads/") && (url.endsWith(".png") || url.endsWith(".jpg") || url.endsWith(".jpeg") || url.endsWith(".webp") || url.includes("img"));
+                  
+                  if (hasExclamation || isUploadImage) {
+                    if (url.startsWith("/api/uploads/")) {
+                      url = `${API_BASE}${url}`;
+                    }
+                    return (
+                      <div key={i} className="chat-image-container" style={{ margin: "16px 0", maxWidth: "100%" }}>
+                        <img
+                          src={url}
+                          alt={alt}
+                          style={{
+                            maxWidth: "100%",
+                            maxHeight: "380px",
+                            objectFit: "contain",
+                            borderRadius: "3px", // dossier folder sharp photo clip style
+                            border: "1px solid var(--border-accent)",
+                            padding: "6px",
+                            background: "#ffffff",
+                            boxShadow: "0 4px 14px rgba(47, 41, 33, 0.08)",
+                            display: "block"
+                          }}
+                        />
+                        <div style={{
+                          fontSize: "10px",
+                          fontFamily: "var(--font-mono)",
+                          color: "var(--text-muted)",
+                          marginTop: "6px",
+                          fontStyle: "italic",
+                          letterSpacing: "0.5px"
+                        }}>
+                          {alt || "Dossier Visual Attachment"}
+                        </div>
+                      </div>
+                    );
+                  }
+                }
+                return sub;
+              }));
+            } else {
+              newSegments.push(seg);
+            }
+          }
+          segments = newSegments;
+
+          // bold
+          newSegments = [];
           for (let seg of segments) {
             if (typeof seg === "string") {
               const subSegs = seg.split(/(\*\*.*?\*\*)/g);
@@ -188,24 +261,45 @@ const MarkdownRenderer = ({ content }) => {
           }
         };
 
+        let currentPara = [];
+        const flushPara = (key) => {
+          if (currentPara.length > 0) {
+            renderedLines.push(
+              <p key={`p-${key}`} style={{ margin: "0 0 12px 0", lineHeight: "1.6" }}>
+                {currentPara.map((lineText, idx) => (
+                  <span key={idx} style={{ display: "block" }}>
+                    {renderInline(lineText)}
+                  </span>
+                ))}
+              </p>
+            );
+            currentPara = [];
+          }
+        };
+
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i];
           const trimmed = line.trim();
 
           if (trimmed.startsWith("# ")) {
             flushList(i);
+            flushPara(i);
             renderedLines.push(<h1 key={i} style={{ margin: "16px 0 8px 0", fontSize: "1.8em", fontWeight: "bold" }}>{renderInline(trimmed.slice(2))}</h1>);
           } else if (trimmed.startsWith("## ")) {
             flushList(i);
+            flushPara(i);
             renderedLines.push(<h2 key={i} style={{ margin: "14px 0 6px 0", fontSize: "1.4em", fontWeight: "bold" }}>{renderInline(trimmed.slice(3))}</h2>);
           } else if (trimmed.startsWith("### ")) {
             flushList(i);
+            flushPara(i);
             renderedLines.push(<h3 key={i} style={{ margin: "12px 0 4px 0", fontSize: "1.2em", fontWeight: "bold" }}>{renderInline(trimmed.slice(4))}</h3>);
           } else if (trimmed.startsWith("- ") || trimmed.startsWith("* ")) {
+            flushPara(i);
             insideList = true;
             listItems.push(trimmed.slice(2));
           } else if (/^\d+\.\s/.test(trimmed)) {
             flushList(i);
+            flushPara(i);
             const content = trimmed.replace(/^\d+\.\s/, "");
             const num = trimmed.match(/^\d+/)?.[0] || "1";
             renderedLines.push(<div key={i} className="list-item-numbered" style={{ margin: "6px 0", display: "flex", gap: "8px" }}>
@@ -214,14 +308,16 @@ const MarkdownRenderer = ({ content }) => {
             </div>);
           } else if (trimmed === "") {
             flushList(i);
+            flushPara(i);
           } else {
             if (insideList) {
               flushList(i);
             }
-            renderedLines.push(<p key={i} style={{ margin: "8px 0", lineHeight: "1.6" }}>{renderInline(line)}</p>);
+            currentPara.push(line);
           }
         }
         flushList(lines.length);
+        flushPara(lines.length);
 
         return <div key={index}>{renderedLines}</div>;
       })}
@@ -594,7 +690,7 @@ function MainApp({ session }) {
               experts: status.experts || null, expert_names: status.expert_names || null,
               total_chunks: status.total_chunks || null, experts_used: status.experts_used || null,
             } : f));
-            if (status.status === "indexed" || status.status === "failed") clearInterval(poll);
+            if (status.status === "indexed" || status.status === "failed" || status.status === "error") clearInterval(poll);
           } catch { clearInterval(poll); }
         }, 800);
       } catch {
@@ -623,7 +719,7 @@ function MainApp({ session }) {
             experts: status.experts || null, expert_names: status.expert_names || null,
             total_chunks: status.total_chunks || null, experts_used: status.experts_used || null,
           } : f));
-          if (status.status === "indexed" || status.status === "failed") clearInterval(poll);
+          if (status.status === "indexed" || status.status === "failed" || status.status === "error") clearInterval(poll);
         } catch { clearInterval(poll); }
       }, 800);
     } catch {
@@ -1445,11 +1541,6 @@ function MainApp({ session }) {
               <DbBadge label="Postgres" status={dbHealth.postgres_docker} />
             </div>
           )}
-          {health && (
-            <div className="health-badge" style={{ marginRight: "1rem", color: "var(--text-secondary)", fontSize: "11px", fontFamily: "var(--font-mono)", border: "1px solid rgba(184, 122, 45, 0.12)", background: "rgba(250, 246, 238, 0.5)", padding: "4px 10px", borderRadius: "2px" }}>
-              [ {health.total_queries} QUERIES · {Math.round(health.avg_latency_ms)}MS AVG ]
-            </div>
-          )}
           <button
             onClick={() => setShowHints(!showHints)}
             className={`hints-bulb-btn ${showHints ? "active" : ""}`}
@@ -1572,7 +1663,7 @@ function MainApp({ session }) {
                   <div className="rewrite-notice">[ REFOCUSED QUERY ] "{msg.meta.rewritten_query}"</div>
                 )}
                 <div className="message-bubble">
-                  <MarkdownRenderer content={msg.content} />
+                  <MarkdownRenderer content={msg.content} sources={msg.meta?.sources} />
                   {msg.streaming && (
                     <span className="typing-indicator">
                       <span className="typing-dot"></span>
@@ -2004,9 +2095,37 @@ function MainApp({ session }) {
                               </div>
                             </div>
 
-                            {file.status !== "indexed" && file.status !== "failed" && (
-                              <div className="progress-bar">
-                                <div className="progress-fill" style={{ width: `${file.progress}%` }}></div>
+                            {file.status !== "indexed" && file.status !== "failed" && file.status !== "uploading" && (
+                              <div style={{ marginTop: "4px" }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "3px" }}>
+                                  <span style={{
+                                    fontFamily: "var(--font-mono)", fontSize: "9px", fontWeight: 700,
+                                    textTransform: "uppercase", letterSpacing: "0.5px",
+                                    color: file.status === "embedding" ? "var(--accent-indigo)"
+                                         : file.status === "storing" || file.status === "indexing" ? "var(--accent-emerald)"
+                                         : "var(--accent-amber)"
+                                  }}>
+                                    {file.status === "parsing" ? "⟳ Parsing document"
+                                     : file.status === "captioning" ? "⟳ Captioning images"
+                                     : file.status === "preparing" ? "⟳ Preparing pipeline"
+                                     : file.status === "embedding" ? "⟳ Embedding chunks"
+                                     : file.status === "storing" ? "⟳ Storing to DB"
+                                     : file.status === "indexing" ? "⟳ Building indexes"
+                                     : `⟳ ${file.status || "processing"}`}
+                                  </span>
+                                  <span style={{
+                                    fontFamily: "var(--font-mono)", fontSize: "10px", fontWeight: 700,
+                                    color: "var(--text-secondary)"
+                                  }}>
+                                    {file.progress || 0}%
+                                  </span>
+                                </div>
+                                <div className="progress-bar" style={{ height: "5px" }}>
+                                  <div className="progress-fill" style={{
+                                    width: `${file.progress || 0}%`,
+                                    background: (file.progress || 0) >= 80 ? "var(--accent-emerald)" : "var(--accent-cyan)"
+                                  }}></div>
+                                </div>
                               </div>
                             )}
                           </div>
@@ -2139,28 +2258,37 @@ function MainApp({ session }) {
 
 function DbBadge({ label, status }) {
   const up = status === "up";
+  const themeColor = up ? "var(--accent-emerald)" : "var(--accent-rose)";
+  const bgColor = up ? "rgba(28, 82, 55, 0.05)" : "rgba(138, 46, 36, 0.05)";
+  const borderColor = up ? "var(--accent-emerald)" : "var(--accent-rose)";
+  const borderStyle = up ? "dashed" : "solid";
+  const statusText = up ? "ACTIVE" : "OFFLINE";
+
   return (
     <div style={{
-      display: "flex", alignItems: "center", gap: "6px", fontSize: "10px",
-      padding: "4px 8px", borderRadius: "2px",
-      background: "var(--bg-primary)",
-      border: "1px solid rgba(184, 122, 45, 0.15)",
-      borderLeft: `3px solid ${up ? "#5a7d4a" : "#b53e3e"}`,
-      color: "var(--text-primary)",
-      fontFamily: "Georgia, serif",
-      textTransform: "uppercase",
+      display: "inline-flex",
+      alignItems: "center",
+      gap: "6px",
+      fontSize: "9px",
+      padding: "4px 8px",
+      borderRadius: "2px",
+      background: bgColor,
+      border: `1px ${borderStyle} ${borderColor}`,
+      color: themeColor,
+      fontFamily: "var(--font-mono)",
+      fontWeight: 700,
       letterSpacing: "0.5px",
-      fontWeight: 600,
-    }} title={`${label}: ${status}`}>
-      <span style={{ fontSize: "8px", color: up ? "#5a7d4a" : "#b53e3e", marginRight: "2px" }}>●</span>
-      {label}
+      textTransform: "uppercase",
+      transition: "all 0.2s ease"
+    }} title={`${label}: ${status.toUpperCase()}`}>
+      <span style={{ opacity: 0.8 }}>{label}:</span>
+      <span style={{ fontWeight: 800 }}>{statusText}</span>
     </div>
   );
 }
 
 function SourceCards({ sources }) {
   const [expanded, setExpanded] = useState(false);
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
   return (
     <div className="sources-container">
       <button className="sources-toggle" onClick={() => setExpanded(!expanded)}>
@@ -2176,7 +2304,7 @@ const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:3001";
             )}
           </div>
           <div className="source-card-content" style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-            {s.expert_id === "image" && s.metadata?.source && (
+            {(s.expert_id === "image" || s.modality === "image") && s.metadata?.source && (
               <div className="source-image-wrapper" style={{
                 marginTop: "4px",
                 borderRadius: "8px",

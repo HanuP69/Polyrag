@@ -1,8 +1,9 @@
 const axios = require("axios");
 const http = require("http");
+const config = require("./config");
 
-const ENGINE_URL = process.env.ENGINE_URL || "http://localhost:8000";
-const TIMEOUT = 30000;
+const ENGINE_URL = config.ENGINE_URL;
+const TIMEOUT = 0;
 
 // Keep-alive pool: reuse TCP connections to Python engine
 const keepAliveAgent = new http.Agent({

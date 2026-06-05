@@ -1,0 +1,59 @@
+{
+  "_comment": "PolyRAG Configuration — edit this file to change all settings",
+
+  "models": {
+    "text_model": "qwen2.5:7b-instruct-q4_K_M",
+    "caption_model": "llava:latest",
+    "embedder_model": "BAAI/bge-m3",
+    "reranker_model": "BAAI/bge-reranker-v2-m3"
+  },
+
+  "ollama": {
+    "base_url": "http://localhost:11434"
+  },
+
+  "cloud": {
+    "gemini_api_key": "",
+    "gemini_model": "gemini-2.0-flash",
+    "groq_api_key": ""
+  },
+
+  "database": {
+    "pg_conn": "postgresql://postgres:tan69@localhost:5433/polyrag"
+  },
+
+  "devices": {
+    "embed_device": "cpu",
+    "rerank_device": "cpu",
+    "embed_batch_size": 32
+  },
+
+  "retrieval": {
+    "dense_top_k": { "text": 30, "table": 30, "image": 20 },
+    "sparse_top_k": { "text": 30, "table": 30, "image": 20 },
+    "rrf_k": 60,
+    "rerank_top_n": 50,
+    "final_top_k": 8,
+    "use_hyde": true
+  },
+
+  "ingestion": {
+    "skip_decorative_images": true,
+    "max_images_per_section": 3,
+    "upload_dir": "./data/uploads"
+  },
+
+  "server": {
+    "engine_host": "0.0.0.0",
+    "engine_port": 8000,
+    "node_port": 3001,
+    "frontend_port": 5173,
+    "node_workers": 2
+  },
+
+  "auth": {
+    "supabase_url": "",
+    "supabase_anon_key": "",
+    "local_dev": true
+  }
+}

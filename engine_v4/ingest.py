@@ -86,6 +86,16 @@ def extract_pdf_chunks(
 
                 b64 = base64.b64encode(img_bytes).decode()
 
+                # Save extracted image to CFG.upload_dir (data/uploads) so the frontend can serve it
+                img_filename = f"{file_id}_p{page_no}_img{img_idx}.png"
+                img_save_path = os.path.join(CFG.upload_dir, img_filename)
+                try:
+                    os.makedirs(CFG.upload_dir, exist_ok=True)
+                    with open(img_save_path, "wb") as img_file:
+                        img_file.write(img_bytes)
+                except Exception as e:
+                    print(f"[Ingest] Warning: Could not write image file to disk: {e}")
+
                 # Get nearby text for context
                 nearby = text_content[:400] if text_content else ""
 
@@ -117,7 +127,8 @@ def extract_pdf_chunks(
                     doc_id=file_id, section_id=page_no,
                     modality="image", content=" ".join(parts),
                     metadata={"image_id": f"img{img_idx}", "has_ocr": bool(ocr_text),
-                              "has_caption": bool(caption), "page": page_no + 1},
+                              "has_caption": bool(caption), "page": page_no + 1,
+                              "source": img_filename},
                     org_id=org_id, file_id=file_id, expert_id="image",
                 )
                 all_chunks.append(ch)
@@ -143,7 +154,7 @@ def extract_text_file(file_path: str, file_id: str, org_id: str = "default") -> 
 
 # ── Full ingestion pipeline ─────────────────────────────────────────────────
 
-def ingest_file(file_path: str, file_id: str, org_id: str = "default") -> dict:
+def ingest_file(file_path: str, file_id: str, org_id: str = "default", progress_callback=None) -> dict:
     """
     Full ingestion pipeline (v4 architecture):
     1. Parse file → chunks
@@ -154,9 +165,14 @@ def ingest_file(file_path: str, file_id: str, org_id: str = "default") -> dict:
     """
     import torch, gc
 
+    def _progress(pct: int, stage: str):
+        if progress_callback:
+            progress_callback(pct, stage)
+
     ext = os.path.splitext(file_path)[1].lower()
 
     # 1. Parse
+    _progress(5, "parsing")
     print(f"[Ingest] Parsing {file_path} (ext={ext})...")
     if ext == ".pdf":
         all_chunks = extract_pdf_chunks(file_path, file_id, org_id)
@@ -168,7 +184,15 @@ def ingest_file(file_path: str, file_id: str, org_id: str = "default") -> dict:
     if not all_chunks:
         return {"status": "error", "error": "No chunks extracted"}
 
+    # Check if any image chunks needed captioning
+    has_images = any(ch.modality == "image" for ch in all_chunks)
+    if has_images:
+        _progress(25, "captioning")
+    else:
+        _progress(20, "parsing")
+
     # 2. Unload Ollama (llava was used for captioning) → free VRAM for embedder
+    _progress(40, "preparing")
     print("[Ingest] Unloading Ollama models...")
     ollama_unload_all()
     if torch.cuda.is_available():
@@ -176,15 +200,20 @@ def ingest_file(file_path: str, file_id: str, org_id: str = "default") -> dict:
         gc.collect()
 
     # 3. Embed
+    _progress(45, "embedding")
     print(f"[Ingest] Embedding {len(all_chunks)} chunks...")
     embedder.to_gpu()
     texts = [ch.content for ch in all_chunks]
     BATCH = 64
     all_vecs = []
-    for start in range(0, len(texts), BATCH):
+    total_batches = max(1, (len(texts) + BATCH - 1) // BATCH)
+    for batch_idx, start in enumerate(range(0, len(texts), BATCH)):
         batch = texts[start : start + BATCH]
         vecs = embedder.embed(batch)
         all_vecs.append(vecs)
+        # Progress from 45% to 70% during embedding
+        embed_progress = 45 + int((batch_idx + 1) / total_batches * 25)
+        _progress(min(embed_progress, 70), "embedding")
         if (start // BATCH) % 5 == 0:
             print(f"  {start + len(batch)}/{len(texts)} embedded")
 
@@ -194,16 +223,21 @@ def ingest_file(file_path: str, file_id: str, org_id: str = "default") -> dict:
         ch.embedding = v
 
     # 4. Store to PostgreSQL
+    _progress(80, "storing")
     print("[Ingest] Storing to PostgreSQL...")
     conn = db.get_conn()
     db.store_chunks(all_chunks, conn)
     db.store_embeddings(all_chunks, conn)
-    db.store_bm25(all_chunks, org_id, conn)
     conn.close()
 
+    # Rebuild BM25 from ALL org chunks (not just this file)
+    db.rebuild_bm25(org_id)
+
     # 5. Reload in-memory indexes
+    _progress(90, "indexing")
     from engine_v4.retrieval import reload_indexes
     reload_indexes(org_id)
 
+    _progress(100, "indexed")
     print(f"[Ingest] Done. {len(all_chunks)} chunks stored.")
     return {"status": "completed", "chunk_count": len(all_chunks)}

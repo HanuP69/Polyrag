@@ -24,6 +24,7 @@ router.post("/api/query", async (req, res) => {
     const sources = chunks.slice(0, 8).map((c) => ({
       chunk_id: c.chunk_id,
       modality: c.modality || c.expert_id,
+      expert_id: c.expert_id || c.modality,
       content: (c.content || "").slice(0, 1000),
       metadata: c.metadata || {},
     }));
@@ -143,16 +144,27 @@ function buildPrompt(query, chunks, systemPrompt) {
     "2. Present key points, facts, or instructions in clear bulleted lists or numbered lists.\n" +
     "3. Wrap all code snippets in complete, syntax-highlighted markdown code blocks (e.g. ```python, ```javascript).\n" +
     "4. Cite sources using [Source N] notation (e.g. [Source 1]).\n" +
-    "5. Avoid conversational filler or salutations (e.g. do not say 'Sure, here is...' or 'Hope this helps!'). Be direct, precise, and highly informative.";
+    "5. TABLE FORMATTING RULE: If the user query asks for results, performance, metrics, comparisons, or statistics, or if any retrieved source contains tabular data (e.g., chunks starting with '[TABLE]' or containing Markdown table rows), you MUST present this data in a clean Markdown table format with columns and rows. Do not present it as a plain text list or simple bullet points.\n" +
+    "6. CRITICAL IMAGE EMBEDDING RULE: If a retrieved source is an image and is directly relevant to answering the user's query, you MUST display/embed the image inline in your response using markdown format: `![Short Description of Image](Image URL)` or `![Short Description of Image](source_N)` where N is the source number. Generate the description dynamically based on the image caption/OCR (e.g. if it is a results table, use `![Results Table](source_N)`). Do NOT embed images that are unrelated or irrelevant to what the user specifically asked for (e.g., if the user asks for results/metrics, do not embed an architecture flowchart diagram). You MUST output the actual markdown tag inline for relevant images.\n" +
+    "7. Avoid conversational filler or salutations (e.g. do not say 'Sure, here is...' or 'Hope this helps!'). Be direct, precise, and highly informative.";
 
   let context = "";
   (chunks || []).forEach((chunk, i) => {
     const content = (chunk.content || "").slice(0, 1500);
     const modality = chunk.modality || chunk.expert_id || "unknown";
-    context += `\n[Source ${i + 1} (${modality})]:\n${content}\n`;
+    let metaStr = modality;
+    if ((modality === "image" || chunk.expert_id === "image") && chunk.metadata?.source) {
+      metaStr += `, Image URL: /api/uploads/${chunk.metadata.source}`;
+    }
+    context += `\n[Source ${i + 1} (${metaStr})]:\n${content}\n`;
   });
 
-  return `${sys}\n\n--- Sources ---\n${context}\n\n--- Question ---\n${query}`;
+  const hasImageSource = (chunks || []).some(c => c.modality === "image" || c.expert_id === "image");
+  const reminder = hasImageSource
+    ? "\n\nCRITICAL REMINDER: Retrieved sources contain one or more images. If any retrieved image is relevant to answering the user's query, you MUST embed it inline using markdown format: `![Short Description of Image](source_N)` or `![Short Description of Image](Image URL)` (where N is the source number). Do NOT embed irrelevant images (e.g., do not show an architecture diagram if the user only asked for results/metrics)."
+    : "";
+
+  return `${sys}\n\n--- Sources ---\n${context}\n\n--- Question ---\n${query}${reminder}`;
 }
 
 module.exports = router;

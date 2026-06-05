@@ -2,17 +2,16 @@ require("dotenv").config();
 
 const cluster = require("cluster");
 const os = require("os");
+const config = require("./services/config");
 
-// Default to 1 worker in development, or override via env var
-const NUM_WORKERS = process.env.NUM_WORKERS 
-  ? parseInt(process.env.NUM_WORKERS) 
-  : (process.env.NODE_ENV === "production" ? Math.min(os.cpus().length, 4) : 1);
+// Resolve worker count from config
+const NUM_WORKERS = config.NUM_WORKERS;
 
 if (cluster.isPrimary && NUM_WORKERS > 1) {
   console.log("=".repeat(60));
   console.log("  PolyRAG Node.js Orchestration Server (Cluster)");
   console.log(`  Workers: ${NUM_WORKERS}`);
-  console.log(`  Engine: ${process.env.ENGINE_URL || "http://localhost:8000"}`);
+  console.log(`  Engine: ${config.ENGINE_URL}`);
   console.log("=".repeat(60));
 
   for (let i = 0; i < NUM_WORKERS; i++) {
@@ -28,7 +27,7 @@ if (cluster.isPrimary && NUM_WORKERS > 1) {
   if (cluster.isPrimary) {
     console.log("=".repeat(60));
     console.log("  PolyRAG Node.js Orchestration Server (Single Process)");
-    console.log(`  Engine: ${process.env.ENGINE_URL || "http://localhost:8000"}`);
+    console.log(`  Engine: ${config.ENGINE_URL}`);
     console.log("=".repeat(60));
   }
   const express = require("express");
@@ -43,13 +42,27 @@ if (cluster.isPrimary && NUM_WORKERS > 1) {
   const chatRoutes = require("./routes/chat");
   const cache = require("./services/cache");
 
-  const PORT = process.env.PORT || 3001;
+  const PORT = config.PORT;
   const app = express();
   const path = require("path");
 
   app.use(cors({ origin: "*", credentials: true }));
   app.use(express.json({ limit: "10mb" }));
-  app.use("/api/uploads", express.static(path.join(__dirname, "../uploads")));
+  app.use("/api/uploads", (req, res, next) => {
+    // Correct URL if the separator underscore is missing between UUID and page/img markers
+    // e.g. /1a9229f2-c7c8-412e-8825-89ce749acf7bp1_img0.png -> /1a9229f2-c7c8-412e-8825-89ce749acf7b_p1_img0.png
+    const filename = req.path.slice(1); // remove leading slash
+    const uuidPatternWithoutUnderscore = /^([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})_?p(\d+)_?img(\d+)\.png$/i;
+    const match = filename.match(uuidPatternWithoutUnderscore);
+    if (match) {
+      const correctedFilename = `${match[1]}_p${match[2]}_img${match[3]}.png`;
+      if (correctedFilename !== filename) {
+        req.url = "/" + correctedFilename;
+      }
+    }
+    next();
+  });
+  app.use("/api/uploads", express.static(path.join(__dirname, "../data/uploads")));
   app.use(morgan("short"));
 
   const limiter = rateLimit({
@@ -69,7 +82,7 @@ if (cluster.isPrimary && NUM_WORKERS > 1) {
       worker: process.pid,
       uptime: process.uptime(),
       cache: cache.stats(),
-      engine_url: process.env.ENGINE_URL || "http://localhost:8000",
+      engine_url: config.ENGINE_URL,
     });
   });
 

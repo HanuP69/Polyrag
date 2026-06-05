@@ -293,6 +293,12 @@ body {
 
 .file-status.indexed { color: var(--accent-emerald); font-weight: 700; }
 .file-status.parsing { color: var(--accent-amber); font-weight: 700; }
+.file-status.captioning { color: var(--accent-amber); font-weight: 700; }
+.file-status.preparing { color: var(--accent-amber); font-weight: 700; }
+.file-status.embedding { color: var(--accent-indigo); font-weight: 700; }
+.file-status.storing { color: var(--accent-emerald); font-weight: 700; }
+.file-status.indexing { color: var(--accent-emerald); font-weight: 700; }
+.file-status.processing { color: var(--accent-cyan); font-weight: 700; }
 .file-status.failed { color: var(--accent-rose); font-weight: 700; }
 
 .progress-bar {

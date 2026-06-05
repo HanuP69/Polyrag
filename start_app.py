@@ -106,6 +106,22 @@ def run():
 
     root_dir = os.path.dirname(os.path.abspath(__file__))
 
+    # Load ports from polyrag.config.json
+    import json
+    config_path = os.path.join(root_dir, "polyrag.config.json")
+    engine_port = 8000
+    node_port = 3001
+    frontend_port = 5173
+    try:
+        with open(config_path) as f:
+            cfg = json.load(f)
+        engine_port = cfg.get("server", {}).get("engine_port", 8000)
+        node_port = cfg.get("server", {}).get("node_port", 3001)
+        frontend_port = cfg.get("server", {}).get("frontend_port", 5173)
+        print(f"  Config: {config_path}")
+    except Exception:
+        print(f"  Config: using defaults (no polyrag.config.json)")
+
     # Build env with PYTHONPATH set so `engine.*` always resolves
     engine_env = os.environ.copy()
     existing_pythonpath = engine_env.get("PYTHONPATH", "")
@@ -115,9 +131,9 @@ def run():
     )
 
     print("[1/5] Cleaning up ports and memory...")
-    kill_port(8000)
-    kill_port(3001)
-    kill_port(5173)
+    kill_port(engine_port)
+    kill_port(node_port)
+    kill_port(frontend_port)
     if IS_WINDOWS:
         subprocess.run(
             ["powershell", "-Command", "Stop-Process -Name node -Force -ErrorAction SilentlyContinue"],
@@ -126,7 +142,7 @@ def run():
     clear_blocked_memory()
     time.sleep(2)
 
-    print("[2/5] Starting Python Engine (port 8000)...")
+    print(f"[2/5] Starting Python Engine (port {engine_port})...")
     popen_new_console(
         [sys.executable, "-m", "engine_v4.main"],
         cwd=root_dir,
@@ -134,17 +150,17 @@ def run():
     )
 
     print("[3/5] Waiting for Engine to load models...")
-    if not wait_for_engine():
+    if not wait_for_engine(f"http://localhost:{engine_port}/health"):
         print("  Engine failed to start. Aborting.")
         return
 
-    print("[4/5] Starting Node.js Orchestrator (port 3001)...")
+    print(f"[4/5] Starting Node.js Orchestrator (port {node_port})...")
     popen_new_console(
         ["node", "index.js"],
         cwd=os.path.join(root_dir, "server"),
     )
 
-    print("[5/5] Starting React Frontend (port 5173)...")
+    print(f"[5/5] Starting React Frontend (port {frontend_port})...")
     popen_new_console(
         "npm run dev",
         cwd=os.path.join(root_dir, "client"),
@@ -155,10 +171,11 @@ def run():
     print()
     print("=" * 60)
     print("  All services running!")
-    print("  Engine:       http://localhost:8000")
-    print("  Orchestrator: http://localhost:3001")
-    print("  Frontend:     http://localhost:5173")
+    print(f"  Engine:       http://localhost:{engine_port}")
+    print(f"  Orchestrator: http://localhost:{node_port}")
+    print(f"  Frontend:     http://localhost:{frontend_port}")
     print("=" * 60)
 
 if __name__ == "__main__":
     run()
+
