@@ -53,7 +53,7 @@ class Config:
 
     # ── Gemini (optional cloud fallback) ──────────────────────────────────
     gemini_api_key: str = _get("cloud", "gemini_api_key", "GEMINI_API_KEY", "")
-    gemini_model:   str = _get("cloud", "gemini_model", "GEMINI_MODEL", "gemini-2.0-flash")
+    gemini_model:   str = _get("cloud", "gemini_model", "GEMINI_MODEL", "gemini-2.5-flash")
     groq_api_key:   str = _get("cloud", "groq_api_key", "GROQ_API_KEY", "")
 
     # ── Local HF models ──────────────────────────────────────────────────

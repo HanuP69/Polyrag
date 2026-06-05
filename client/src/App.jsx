@@ -365,14 +365,14 @@ function MainApp({ session }) {
   const [dbHealth, setDbHealth] = useState(null);
   const [githubUrl, setGithubUrl] = useState("");
   const [dragging, setDragging] = useState(false);
-  const [model, setModel] = useState("gemini-2.0-flash");
+  const [model, setModel] = useState("gemini-2.5-flash");
   const [modelRegistry, setModelRegistry] = useState({});
   const [showSettings, setShowSettings] = useState(false);
   const [config, setConfig] = useState({
     useLlmText: false,
     useLlmCode: false,
     imageModel: "llava:7b",
-    tableModel: "gemini-2.0-flash",
+    tableModel: "gemini-2.5-flash",
     enablePlanner: false,
     groqApiKey: "",
     geminiApiKey: "",
@@ -2230,7 +2230,7 @@ function MainApp({ session }) {
                         ))
                       ) : (
                         <>
-                          <option value="gemini-2.0-flash">Gemini 2.0 Flash (Gemini)</option>
+                          <option value="gemini-2.5-flash">Gemini 2.5 Flash (Gemini)</option>
                           <option value="llama3.2:3b">Llama 3.2 (Local)</option>
                           <option value="gemma3:4b">Gemma 3 4B (Local)</option>
                           <option value="llama-3.3-70b-specdec">Llama 3.3 70B (Groq)</option>
