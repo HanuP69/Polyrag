@@ -103,7 +103,7 @@ if (cluster.isPrimary && NUM_WORKERS > 1) {
   app.use(chatRoutes);
 
   app.use((err, req, res, next) => {
-    console.error("[Server] Unhandled error:", err.message);
+    console.error(`[Server] Unhandled error on ${req.method} ${req.url}:`, err.stack || err.message);
     res.status(500).json({ error: "Internal server error" });
   });
 

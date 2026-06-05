@@ -31,7 +31,17 @@ const upload = multer({
   },
 });
 
-router.post("/api/ingest", upload.single("file"), async (req, res) => {
+router.post("/api/ingest", (req, res, next) => {
+  upload.single("file")(req, res, (multerErr) => {
+    if (multerErr) {
+      console.error("[Ingest] Multer error:", multerErr.message);
+      return res.status(400).json({ error: `Upload error: ${multerErr.message}` });
+    }
+    handleIngest(req, res).catch(next);
+  });
+});
+
+async function handleIngest(req, res) {
   if (!req.file) {
     return res.status(400).json({ error: "No file uploaded" });
   }
@@ -43,8 +53,10 @@ router.post("/api/ingest", upload.single("file"), async (req, res) => {
   }
 
   try {
+    console.log(`[Ingest] Uploading ${req.file.originalname} (${(req.file.size / 1024).toFixed(1)}KB) for org=${orgId}`);
     const result = await engine.ingestFile(req.file.path, orgId, models);
     fs.unlink(req.file.path, () => {}); // cleanup temp file
+    console.log(`[Ingest] Success: file_id=${result.file_id}`);
     res.json({
       status: result.status,
       file_id: result.file_id,
@@ -52,10 +64,14 @@ router.post("/api/ingest", upload.single("file"), async (req, res) => {
     });
   } catch (err) {
     fs.unlink(req.file.path, () => {}); // cleanup temp file
-    console.error("[Ingest] Failed:", err.message);
-    res.status(500).json({ error: err.message });
+    const detail = err.response?.data?.detail || err.message;
+    console.error("[Ingest] Failed:", detail);
+    if (err.response?.status) {
+      console.error("[Ingest] Engine responded with status:", err.response.status);
+    }
+    res.status(500).json({ error: detail });
   }
-});
+}
 
 router.get("/api/ingest/:fileId", async (req, res) => {
   const orgId = req.user?.id || "default";

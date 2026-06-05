@@ -1,12 +1,20 @@
 const axios = require("axios");
 const http = require("http");
+const https = require("https");
 const config = require("./config");
 
 const ENGINE_URL = config.ENGINE_URL;
 const TIMEOUT = 0;
 
-// Keep-alive pool: reuse TCP connections to Python engine
-const keepAliveAgent = new http.Agent({
+// Keep-alive pools: reuse TCP connections to Python engine
+const httpAgent = new http.Agent({
+  keepAlive: true,
+  maxSockets: 20,
+  maxFreeSockets: 5,
+  timeout: 60000,
+});
+
+const httpsAgent = new https.Agent({
   keepAlive: true,
   maxSockets: 20,
   maxFreeSockets: 5,
@@ -16,7 +24,8 @@ const keepAliveAgent = new http.Agent({
 const client = axios.create({
   baseURL: ENGINE_URL,
   timeout: TIMEOUT,
-  httpAgent: keepAliveAgent,
+  httpAgent: httpAgent,
+  httpsAgent: httpsAgent,
 });
 
 
@@ -69,11 +78,22 @@ async function ingestFile(filePath, orgId, models = {}) {
   form.append("file", fs.createReadStream(filePath));
   form.append("org_id", orgId);
   form.append("models", JSON.stringify(models));
-  const { data } = await client.post("/ingest/async", form, {
-    headers: { ...form.getHeaders(), "x-tenant-id": orgId },
-    timeout: 60000,
-  });
-  return data;
+  try {
+    const { data } = await client.post("/ingest/async", form, {
+      headers: { ...form.getHeaders(), "x-tenant-id": orgId },
+      timeout: 60000,
+      maxContentLength: Infinity,
+      maxBodyLength: Infinity,
+    });
+    return data;
+  } catch (err) {
+    console.error("[Engine] ingestFile failed:", err.message);
+    if (err.response) {
+      console.error("[Engine] Response status:", err.response.status);
+      console.error("[Engine] Response data:", JSON.stringify(err.response.data));
+    }
+    throw err;
+  }
 }
 
 async function getIngestStatus(fileId, orgId) {
