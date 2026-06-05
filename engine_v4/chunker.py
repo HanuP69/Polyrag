@@ -131,9 +131,48 @@ def caption_image_pil(img, org_id: str = "default") -> str:
     return caption_image_gemini(b64, org_id)
 
 
+def caption_image_ollama(b64_str: str) -> str:
+    import requests
+    from engine_v4.config import CFG
+    
+    if b64_str.startswith("data:"):
+        b64_str = b64_str.split(",", 1)[1]
+        
+    payload = {
+        "model": CFG.caption_model,
+        "messages": [
+            {
+                "role": "user",
+                "content": CAPTION_PROMPT,
+                "images": [b64_str]
+            }
+        ],
+        "stream": False
+    }
+    
+    try:
+        r = requests.post(f"{CFG.ollama_base}/api/chat", json=payload, timeout=120)
+        r.raise_for_status()
+        data = r.json()
+        caption = data.get("message", {}).get("content", "")
+        return clean_text(caption)
+    except Exception as e:
+        print(f"[Caption Ollama] API call failed: {e}")
+        return ""
+
+
 def caption_image_b64(b64_str: str, org_id: str = "default") -> str:
     """Caption from base64 string (used during server ingestion)."""
-    return caption_image_gemini(b64_str, org_id)
+    from engine_v4 import db
+    org_data = db.get_org_config(org_id) or {}
+    db_cfg = org_data.get("config", {})
+    
+    vision_model = db_cfg.get("visionModel") or "gemini"
+    
+    if "llava" in vision_model.lower() or "ollama" in vision_model.lower() or vision_model == "local":
+        return caption_image_ollama(b64_str)
+    else:
+        return caption_image_gemini(b64_str, org_id)
 
 
 # ── CHUNK TEXT (from v4 notebook) ────────────────────────────────────────────

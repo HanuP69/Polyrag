@@ -2347,7 +2347,7 @@ function MainApp({ session }) {
 
                   <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "6px", padding: "16px", background: "var(--bg-card)", marginTop: "16px" }}>
                     <div className="sidebar-label" style={{ margin: "0 0 12px 0" }}>Pipeline Model Configuration</div>
-                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "16px" }}>
                       <div>
                         <label style={{ display: "block", fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--text-muted)", marginBottom: "4px" }}>EMBEDDING MODEL</label>
                         <select value={config.embedderProvider || "local"} onChange={e => handleConfigChange("embedderProvider", e.target.value)}
@@ -2366,6 +2366,17 @@ function MainApp({ session }) {
                           <option value="local">Local BGE-Reranker (Enabled)</option>
                           <option value="none">Disabled (Bypassed — Saves ~1.5GB VRAM/RAM)</option>
                         </select>
+                      </div>
+                      <div>
+                        <label style={{ display: "block", fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--text-muted)", marginBottom: "4px" }}>VISION / CAPTIONING MODEL</label>
+                        <select value={config.visionModel || "gemini"} onChange={e => handleConfigChange("visionModel", e.target.value)}
+                          style={{ width: "100%", padding: "6px 10px", borderRadius: "4px", border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "11px", fontFamily: "var(--font-mono)", cursor: "pointer" }}>
+                          <option value="gemini">Gemini (Cloud) - Fast & Accurate</option>
+                          <option value="local">LLaVA (Local via Ollama)</option>
+                        </select>
+                        <span style={{ fontSize: "9px", color: "var(--accent-amber)", marginTop: "4px", display: "block" }}>
+                          Used during document ingestion.
+                        </span>
                       </div>
                     </div>
                   </div>

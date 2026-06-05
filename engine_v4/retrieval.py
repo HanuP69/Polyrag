@@ -59,7 +59,7 @@ def rrf_fuse(ranked_lists: List[List], weights: Optional[List[float]] = None,
 def retrieve_modality_db(query: str, qvec: np.ndarray, modality: str,
                          org_id: str = "default",
                          dense_k: int = 30, sparse_k: int = 30,
-                         rrf_k: int = 60) -> List[dict]:
+                         rrf_k: int = 60, file_ids: Optional[List[str]] = None) -> List[dict]:
     """
     Per-modality hybrid retrieval:
     1. Dense: pgvector cosine search
@@ -67,7 +67,7 @@ def retrieve_modality_db(query: str, qvec: np.ndarray, modality: str,
     3. Fuse with RRF
     """
     # 1. Dense retrieval via pgvector
-    dense_results = db.dense_search(qvec, modality, org_id, dense_k)
+    dense_results = db.dense_search(qvec, modality, org_id, dense_k, file_ids=file_ids)
     dense_ids = [r["chunk_id"] for r in dense_results]
     chunk_map = {r["chunk_id"]: r for r in dense_results}
 
@@ -81,8 +81,18 @@ def retrieve_modality_db(query: str, qvec: np.ndarray, modality: str,
         tokens = tokenize(query)
         if tokens:
             scores = bm25_idx.get_scores(tokens)
-            top_indices = np.argsort(scores)[::-1][:sparse_k]
-            sparse_ids = [bm25_cids[i] for i in top_indices if i < len(bm25_cids)]
+            top_indices = np.argsort(scores)[::-1]
+            chunk_data = _chunk_cache.get(org_id, {}).get("chunk_lookup", {})
+            for i in top_indices:
+                if len(sparse_ids) >= sparse_k:
+                    break
+                if i < len(bm25_cids):
+                    cid = bm25_cids[i]
+                    if file_ids:
+                        ch = chunk_data.get(cid)
+                        if not ch or ch.file_id not in file_ids:
+                            continue
+                    sparse_ids.append(cid)
 
     # Build unified chunk map (sparse results may not be in dense results)
     chunk_data = _chunk_cache.get(org_id, {}).get("chunk_lookup", {})
@@ -142,16 +152,14 @@ HYDE_PROMPT = (
 
 def hyde_expand(query: str, model: str = None, org_id: str = "default") -> str:
     from engine_v4.ollama import llm_chat
-    if not model:
-        from engine_v4 import db
-        org_data = db.get_org_config(org_id) or {}
-        db_cfg = org_data.get("config", {})
-        model = db_cfg.get("textModel") or CFG.text_model
-
-    hyp = llm_chat(model, HYDE_PROMPT.format(query=query), org_id=org_id)
-    if hyp.startswith("[") and ("error" in hyp.lower() or "not set" in hyp.lower()):
+    hyde_model = CFG.text_model
+    try:
+        hyp = llm_chat(hyde_model, HYDE_PROMPT.format(query=query), org_id=org_id)
+        if hyp.startswith("[") and ("error" in hyp.lower() or "not set" in hyp.lower()):
+            return query
+        return f"{query} {hyp}"
+    except Exception:
         return query
-    return f"{query} {hyp}"
 
 
 # ── Full retrieve pipeline (from v4 notebook) ───────────────────────────────
@@ -183,6 +191,7 @@ def retrieve(query: str, org_id: str = "default", top_k: int = 8,
             dense_k=int(CFG.dense_top_k.get(m, 30) * tw),
             sparse_k=int(CFG.sparse_top_k.get(m, 30) * tw),
             rrf_k=CFG.rrf_k,
+            file_ids=file_ids,
         )
 
     # 4. Cross-modal RRF

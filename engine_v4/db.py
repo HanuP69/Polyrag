@@ -463,7 +463,7 @@ def load_bm25(org_id="default") -> dict:
 # ── Dense search via pgvector ────────────────────────────────────────────────
 
 def dense_search(query_vec: np.ndarray, modality: str, org_id: str = "default",
-                 top_k: int = 30) -> List[dict]:
+                 top_k: int = 30, file_ids: Optional[List[str]] = None) -> List[dict]:
     """Cosine similarity search via pgvector <=> operator."""
     conn = get_conn()
     vec_str = "[" + ",".join(str(v) for v in query_vec.tolist()) + "]"
@@ -472,16 +472,25 @@ def dense_search(query_vec: np.ndarray, modality: str, org_id: str = "default",
             cur.execute("SET hnsw.ef_search = 64")
         except Exception:
             pass
-        cur.execute("""
+        
+        query = """
             SELECT c.chunk_id, c.doc_id, c.section_id, c.modality,
                    c.content, c.metadata, c.org_id, c.file_id,
                    1 - (e.embedding <=> %s::vector) as similarity
             FROM embeddings e
             JOIN chunks c ON c.chunk_id = e.chunk_id
             WHERE c.modality = %s AND c.org_id = %s
-            ORDER BY e.embedding <=> %s::vector
-            LIMIT %s
-        """, (vec_str, modality, org_id, vec_str, top_k))
+        """
+        params = [vec_str, modality, org_id]
+        
+        if file_ids:
+            query += " AND c.file_id = ANY(%s)"
+            params.append(file_ids)
+            
+        query += " ORDER BY e.embedding <=> %s::vector LIMIT %s"
+        params.extend([vec_str, top_k])
+        
+        cur.execute(query, tuple(params))
         rows = cur.fetchall()
     conn.close()
 
