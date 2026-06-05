@@ -93,6 +93,7 @@ class RetrieveRequest(BaseModel):
     org_id: str = "default"
     top_k: int = 10
     file_ids: Optional[List[str]] = None
+    model: Optional[str] = None
 
 class RerankRequest(BaseModel):
     query: str
@@ -103,6 +104,7 @@ class GenerateRequest(BaseModel):
     query: str = ""
     model: Optional[str] = None
     chat_history: Optional[list] = None
+    org_id: str = "default"
 
 class GuardRequest(BaseModel):
     answer: str
@@ -194,7 +196,7 @@ async def retrieve_endpoint(req: RetrieveRequest):
     loop = asyncio.get_event_loop()
     chunks = await loop.run_in_executor(
         _io_pool,
-        lambda: v4_retrieve(req.query, req.org_id, req.top_k, req.file_ids)
+        lambda: v4_retrieve(req.query, req.org_id, req.top_k, req.file_ids, req.model)
     )
     return {"chunks": chunks[:req.top_k]}
 
@@ -241,6 +243,7 @@ async def generate_stream(req: GenerateRequest):
             for token in llm_chat_stream(
                 model, req.prompt,
                 chat_history=req.chat_history or [],
+                org_id=req.org_id,
             ):
                 tokens.append(token)
                 yield token
@@ -250,6 +253,7 @@ async def generate_stream(req: GenerateRequest):
         for token in llm_chat_stream(
             model, req.prompt,
             chat_history=req.chat_history or [],
+            org_id=req.org_id,
         ):
             event = json.dumps({"type": "token", "content": token})
             yield f"data: {event}\n\n"
@@ -273,7 +277,7 @@ async def generate(req: GenerateRequest):
     loop = asyncio.get_event_loop()
     result = await loop.run_in_executor(
         _io_pool,
-        lambda: llm_chat(model, req.prompt, chat_history=req.chat_history or [])
+        lambda: llm_chat(model, req.prompt, chat_history=req.chat_history or [], org_id=req.org_id)
     )
     return {"response": result}
 

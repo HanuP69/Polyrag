@@ -21,13 +21,14 @@ const client = axios.create({
 });
 
 
-async function retrieve(query, orgId, topK = 10, fileIds = null) {
+async function retrieve(query, orgId, topK = 10, fileIds = null, model = null) {
   const body = {
     query,
     org_id: orgId,
     top_k: topK,
   };
   if (fileIds && fileIds.length > 0) body.file_ids = fileIds;
+  if (model) body.model = model;
   const { data } = await client.post("/retrieve", body, { headers: { "x-tenant-id": orgId } });
   return data;
 }
@@ -43,20 +44,21 @@ async function guard(answer, sources) {
   return data;
 }
 
-function streamGenerate(prompt, query, model, chatHistory = []) {
+function streamGenerate(prompt, query, model, chatHistory = [], orgId = "default") {
   return client.post(
     "/generate/stream",
-    { prompt, query, model, chat_history: chatHistory },
+    { prompt, query, model, chat_history: chatHistory, org_id: orgId },
     { responseType: "stream", timeout: 120000 }
   );
 }
 
-async function generate(prompt, query, model, chatHistory = []) {
+async function generate(prompt, query, model, chatHistory = [], orgId = "default") {
   const { data } = await client.post("/generate", {
     prompt,
     query,
     model,
-    chat_history: chatHistory
+    chat_history: chatHistory,
+    org_id: orgId
   });
   return data;
 }

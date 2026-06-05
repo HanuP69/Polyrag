@@ -108,9 +108,15 @@ def groq_chat_stream(
     model: str,
     prompt: str,
     chat_history: Optional[list] = None,
+    org_id: str = "default",
 ) -> Generator[str, None, None]:
     """Streaming Groq chat completions using requests REST API."""
-    if not CFG.groq_api_key:
+    from engine_v4 import db
+    org_data = db.get_org_config(org_id) or {}
+    db_cfg = org_data.get("config", {})
+    api_key = db_cfg.get("groqApiKey") or CFG.groq_api_key
+
+    if not api_key:
         yield "[Groq API key not set. Please configure it in settings.]"
         return
 
@@ -124,7 +130,7 @@ def groq_chat_stream(
 
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
-        "Authorization": f"Bearer {CFG.groq_api_key}",
+        "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
     payload = {
@@ -160,9 +166,15 @@ def gemini_chat_stream(
     model: str,
     prompt: str,
     chat_history: Optional[list] = None,
+    org_id: str = "default",
 ) -> Generator[str, None, None]:
     """Streaming Gemini completions using Google Generative Language REST API."""
-    if not CFG.gemini_api_key:
+    from engine_v4 import db
+    org_data = db.get_org_config(org_id) or {}
+    db_cfg = org_data.get("config", {})
+    api_key = db_cfg.get("geminiApiKey") or CFG.gemini_api_key
+
+    if not api_key:
         yield "[Gemini API key not set. Please configure it in settings.]"
         return
 
@@ -181,7 +193,7 @@ def gemini_chat_stream(
     })
 
     gemini_model_name = model if "gemini" in model else CFG.gemini_model
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model_name}:streamGenerateContent?key={CFG.gemini_api_key}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model_name}:streamGenerateContent?key={api_key}"
     headers = {"Content-Type": "application/json"}
     payload = {"contents": contents}
 
@@ -228,13 +240,14 @@ def llm_chat_stream(
     prompt: str,
     system_prompt: str = "",
     chat_history: Optional[list] = None,
+    org_id: str = "default",
 ) -> Generator[str, None, None]:
     """Unified LLM router: routes stream requests to Ollama, Groq, or Gemini."""
     model_lower = model.lower()
     if "groq" in model_lower or model_lower in ["llama-3.3-70b-specdec", "gemma2-9b-it", "mixtral-8x7b-32768"]:
-        return groq_chat_stream(model, prompt, chat_history)
+        return groq_chat_stream(model, prompt, chat_history, org_id)
     elif "gemini" in model_lower:
-        return gemini_chat_stream(model, prompt, chat_history)
+        return gemini_chat_stream(model, prompt, chat_history, org_id)
     else:
         return ollama_chat_stream(model, prompt, system_prompt, chat_history)
 
@@ -244,7 +257,8 @@ def llm_chat(
     prompt: str,
     system_prompt: str = "",
     chat_history: Optional[list] = None,
+    org_id: str = "default",
 ) -> str:
     """Unified LLM router: returns full string response."""
-    tokens = list(llm_chat_stream(model, prompt, system_prompt, chat_history))
+    tokens = list(llm_chat_stream(model, prompt, system_prompt, chat_history, org_id))
     return "".join(tokens)

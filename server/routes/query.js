@@ -18,7 +18,7 @@ router.post("/api/query", async (req, res) => {
   }
 
   try {
-    const retrieveResult = await engine.retrieve(query, org_id, top_k, file_ids);
+    const retrieveResult = await engine.retrieve(query, org_id, top_k, file_ids, model);
     const chunks = retrieveResult?.chunks || [];
 
     const sources = chunks.slice(0, 8).map((c) => ({
@@ -48,7 +48,8 @@ router.post("/api/query", async (req, res) => {
         buildPrompt(query, chunks.slice(0, 8), system_prompt),
         query,
         model,
-        chat_history
+        chat_history,
+        org_id
       );
 
       await new Promise((resolve, reject) => {

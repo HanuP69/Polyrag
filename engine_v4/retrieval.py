@@ -140,10 +140,16 @@ HYDE_PROMPT = (
     "Question: {query}\n\nPassage:"
 )
 
-def hyde_expand(query: str) -> str:
-    from engine_v4.ollama import ollama_generate
-    hyp = ollama_generate(CFG.text_model, HYDE_PROMPT.format(query=query), timeout=30)
-    if hyp.startswith("[ollama error"):
+def hyde_expand(query: str, model: str = None, org_id: str = "default") -> str:
+    from engine_v4.ollama import llm_chat
+    if not model:
+        from engine_v4 import db
+        org_data = db.get_org_config(org_id) or {}
+        db_cfg = org_data.get("config", {})
+        model = db_cfg.get("textModel") or CFG.text_model
+
+    hyp = llm_chat(model, HYDE_PROMPT.format(query=query), org_id=org_id)
+    if hyp.startswith("[") and ("error" in hyp.lower() or "not set" in hyp.lower()):
         return query
     return f"{query} {hyp}"
 
@@ -151,7 +157,7 @@ def hyde_expand(query: str) -> str:
 # ── Full retrieve pipeline (from v4 notebook) ───────────────────────────────
 
 def retrieve(query: str, org_id: str = "default", top_k: int = 8,
-             file_ids: Optional[List[str]] = None) -> List[dict]:
+             file_ids: Optional[List[str]] = None, model: Optional[str] = None) -> List[dict]:
     """
     Full v4 retrieval pipeline:
     1. Intent → HyDE expansion (if analytical/general)
@@ -163,7 +169,7 @@ def retrieve(query: str, org_id: str = "default", top_k: int = 8,
     # 1. HyDE
     embed_query = query
     if CFG.use_hyde and classify_intent(query) in ("analytical", "general"):
-        embed_query = hyde_expand(query)
+        embed_query = hyde_expand(query, model=model, org_id=org_id)
 
     # 2. Embed
     qvec = embedder.embed([embed_query])[0]
