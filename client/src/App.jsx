@@ -377,6 +377,8 @@ function MainApp({ session }) {
     groqApiKey: "",
     geminiApiKey: "",
   });
+  const [showGroqKeys, setShowGroqKeys] = useState({});
+  const [showGeminiKeys, setShowGeminiKeys] = useState({});
 
   const [p1State, setP1State] = useState("idle");
   const [p2State, setP2State] = useState("idle");
@@ -2214,16 +2216,85 @@ function MainApp({ session }) {
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
                     <div style={{ border: "1px solid var(--border-subtle)", borderRadius: "6px", padding: "16px", background: "var(--bg-card)" }}>
                       <div className="sidebar-label" style={{ margin: "0 0 12px 0" }}>API Credentials</div>
-                      <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "14px", maxHeight: "300px", overflowY: "auto" }}>
                         <div>
-                          <label style={{ display: "block", fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--text-muted)", marginBottom: "4px" }}>GROQ API KEY</label>
-                          <input type="password" value={config.groqApiKey || ""} onChange={e => handleConfigChange("groqApiKey", e.target.value)}
-                            style={{ width: "100%", padding: "6px 10px", borderRadius: "4px", border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "11px", fontFamily: "var(--font-mono)" }} placeholder="gsk_..." />
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <label style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>GROQ API KEYS</label>
+                            <button onClick={() => {
+                              const keys = Array.isArray(config.groqApiKeys) ? [...config.groqApiKeys] : (config.groqApiKey ? [config.groqApiKey] : []);
+                              keys.push("");
+                              handleConfigChange("groqApiKeys", keys);
+                            }} style={{ background: "none", border: "none", color: "var(--accent-indigo)", fontSize: "11px", cursor: "pointer", padding: 0, fontWeight: "bold" }}>+ Add Key</button>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                            {(() => {
+                              const keys = Array.isArray(config.groqApiKeys) ? config.groqApiKeys : (config.groqApiKey ? [config.groqApiKey] : [""]);
+                              if (keys.length === 0) return <span style={{ fontSize: "10px", color: "var(--text-muted)", fontStyle: "italic" }}>No keys added. Click "+ Add Key" to add one.</span>;
+                              return keys.map((key, index) => {
+                                const isVisible = !!showGroqKeys[index];
+                                return (
+                                  <div key={index} style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                                    <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center" }}>
+                                      <input type={isVisible ? "text" : "password"} value={key || ""} onChange={e => {
+                                        const updated = [...keys];
+                                        updated[index] = e.target.value;
+                                        handleConfigChange("groqApiKeys", updated);
+                                      }} style={{ flex: 1, padding: "6px 28px 6px 10px", borderRadius: "4px", border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "11px", fontFamily: "var(--font-mono)" }} placeholder="gsk_..." />
+                                      <button onClick={() => {
+                                        setShowGroqKeys(prev => ({ ...prev, [index]: !prev[index] }));
+                                      }} style={{ position: "absolute", right: "8px", background: "none", border: "none", color: "var(--text-muted)", fontSize: "12px", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}>
+                                        {isVisible ? "👁️" : "🙈"}
+                                      </button>
+                                    </div>
+                                    <button onClick={() => {
+                                      const updated = keys.filter((_, i) => i !== index);
+                                      handleConfigChange("groqApiKeys", updated);
+                                    }} style={{ background: "none", border: "none", color: "var(--accent-rose)", fontSize: "12px", cursor: "pointer", padding: "0 4px" }}>✕</button>
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
                         </div>
+
                         <div>
-                          <label style={{ display: "block", fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--text-muted)", marginBottom: "4px" }}>GEMINI API KEY</label>
-                          <input type="password" value={config.geminiApiKey || ""} onChange={e => handleConfigChange("geminiApiKey", e.target.value)}
-                            style={{ width: "100%", padding: "6px 10px", borderRadius: "4px", border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "11px", fontFamily: "var(--font-mono)" }} placeholder="AIza..." />
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "4px" }}>
+                            <label style={{ fontSize: "10px", fontFamily: "var(--font-mono)", color: "var(--text-muted)" }}>GEMINI API KEYS</label>
+                            <button onClick={() => {
+                              const keys = Array.isArray(config.geminiApiKeys) ? [...config.geminiApiKeys] : (config.geminiApiKey ? [config.geminiApiKey] : []);
+                              keys.push("");
+                              handleConfigChange("geminiApiKeys", keys);
+                            }} style={{ background: "none", border: "none", color: "var(--accent-indigo)", fontSize: "11px", cursor: "pointer", padding: 0, fontWeight: "bold" }}>+ Add Key</button>
+                          </div>
+                          <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                            {(() => {
+                              const keys = Array.isArray(config.geminiApiKeys) ? config.geminiApiKeys : (config.geminiApiKey ? [config.geminiApiKey] : [""]);
+                              if (keys.length === 0) return <span style={{ fontSize: "10px", color: "var(--text-muted)", fontStyle: "italic" }}>No keys added. Click "+ Add Key" to add one.</span>;
+                              return keys.map((key, index) => {
+                                const isVisible = !!showGeminiKeys[index];
+                                return (
+                                  <div key={index} style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                                    <div style={{ position: "relative", flex: 1, display: "flex", alignItems: "center" }}>
+                                      <input type={isVisible ? "text" : "password"} value={key || ""} onChange={e => {
+                                        const updated = [...keys];
+                                        updated[index] = e.target.value;
+                                        handleConfigChange("geminiApiKeys", updated);
+                                      }} style={{ flex: 1, padding: "6px 28px 6px 10px", borderRadius: "4px", border: "1px solid var(--border-subtle)", background: "var(--bg-card)", color: "var(--text-primary)", fontSize: "11px", fontFamily: "var(--font-mono)" }} placeholder="AIza..." />
+                                      <button onClick={() => {
+                                        setShowGeminiKeys(prev => ({ ...prev, [index]: !prev[index] }));
+                                      }} style={{ position: "absolute", right: "8px", background: "none", border: "none", color: "var(--text-muted)", fontSize: "12px", cursor: "pointer", padding: 0, display: "flex", alignItems: "center" }}>
+                                        {isVisible ? "👁️" : "🙈"}
+                                      </button>
+                                    </div>
+                                    <button onClick={() => {
+                                      const updated = keys.filter((_, i) => i !== index);
+                                      handleConfigChange("geminiApiKeys", updated);
+                                    }} style={{ background: "none", border: "none", color: "var(--accent-rose)", fontSize: "12px", cursor: "pointer", padding: "0 4px" }}>✕</button>
+                                  </div>
+                                );
+                              });
+                            })()}
+                          </div>
                         </div>
                       </div>
                     </div>

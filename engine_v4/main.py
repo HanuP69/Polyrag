@@ -373,10 +373,23 @@ async def get_config(org_id: str):
     org_data = db.get_org_config(org_id) or {}
     db_cfg = org_data.get("config", {})
     
+    # Extract list of keys, falling back to legacy single key if array doesn't exist
+    groq_keys = db_cfg.get("groqApiKeys")
+    if not isinstance(groq_keys, list):
+        legacy = db_cfg.get("groqApiKey") or CFG.groq_api_key
+        groq_keys = [legacy] if legacy else []
+        
+    gemini_keys = db_cfg.get("geminiApiKeys")
+    if not isinstance(gemini_keys, list):
+        legacy = db_cfg.get("geminiApiKey") or CFG.gemini_api_key
+        gemini_keys = [legacy] if legacy else []
+
     # Merge with polyrag.config.json values as defaults
     merged_cfg = {
         "groqApiKey": db_cfg.get("groqApiKey") or CFG.groq_api_key,
         "geminiApiKey": db_cfg.get("geminiApiKey") or CFG.gemini_api_key,
+        "groqApiKeys": groq_keys,
+        "geminiApiKeys": gemini_keys,
         "embedderProvider": db_cfg.get("embedderProvider", "local"),
         "rerankerProvider": db_cfg.get("rerankerProvider", "local"),
         "useLlmText": db_cfg.get("useLlmText", False),

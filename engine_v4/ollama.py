@@ -7,6 +7,52 @@ import requests
 from typing import List, Optional, Generator
 from engine_v4.config import CFG
 
+# ── API Key Rotation & Cooldown Manager ──────────────────────────────────────
+_exhausted_keys = {}
+_cursors = {}
+
+def get_next_key(org_id: str, provider: str, db_keys: list, fallback_key: str) -> str:
+    """
+    Selects the next active key for the organization in a round-robin sequence.
+    Excludes any keys that have unexpired cooldowns in _exhausted_keys.
+    Falls back to the fallback_key if no healthy keys are available.
+    """
+    # Filter out empty keys
+    keys = [k for k in db_keys if k and k.strip()]
+    
+    # If no keys in db, use fallback
+    if not keys:
+        return fallback_key
+
+    # Filter out currently exhausted keys
+    now = time.time()
+    healthy_keys = []
+    for k in keys:
+        cooldown_end = _exhausted_keys.get(k, 0)
+        if now >= cooldown_end:
+            healthy_keys.append(k)
+            
+    # If all keys are exhausted, reset the pool
+    if not healthy_keys:
+        print(f"[Key Manager] Warning: All keys are exhausted for org={org_id}, provider={provider}. Resetting pool.")
+        healthy_keys = keys
+
+    # Stateful Round-Robin select
+    cursor_key = (org_id, provider)
+    current_idx = _cursors.get(cursor_key, 0)
+    selected_key = healthy_keys[current_idx % len(healthy_keys)]
+    
+    # Increment cursor
+    _cursors[cursor_key] = (current_idx + 1) % 1000000
+    
+    return selected_key
+
+def mark_key_exhausted(api_key: str):
+    """Marks a key as exhausted for 15 minutes."""
+    if api_key:
+        _exhausted_keys[api_key] = time.time() + 900  # 15 mins cooldown
+        print(f"[Key Manager] Key marked as EXHAUSTED: {api_key[:8]}... cooldown for 15 mins.")
+
 
 def ollama_loaded_models() -> list:
     """Return model names currently loaded in Ollama VRAM."""
@@ -109,12 +155,21 @@ def groq_chat_stream(
     prompt: str,
     chat_history: Optional[list] = None,
     org_id: str = "default",
+    retry_count: int = 0,
 ) -> Generator[str, None, None]:
     """Streaming Groq chat completions using requests REST API."""
     from engine_v4 import db
     org_data = db.get_org_config(org_id) or {}
     db_cfg = org_data.get("config", {})
-    api_key = db_cfg.get("groqApiKey") or CFG.groq_api_key
+
+    # Retrieve all keys
+    db_keys = db_cfg.get("groqApiKeys") or []
+    if not isinstance(db_keys, list):
+        db_keys = [db_keys]
+    if db_cfg.get("groqApiKey"):
+        db_keys.insert(0, db_cfg.get("groqApiKey"))
+
+    api_key = get_next_key(org_id, "groq", db_keys, CFG.groq_api_key)
 
     if not api_key:
         yield "[Groq API key not set. Please configure it in settings.]"
@@ -141,6 +196,14 @@ def groq_chat_stream(
 
     try:
         r = requests.post(url, json=payload, headers=headers, stream=True, timeout=60)
+        # Check for exhaustion error codes
+        if r.status_code in (429, 402, 403) or (r.status_code != 200 and ("rate limit" in r.text.lower() or "quota" in r.text.lower() or "exhausted" in r.text.lower())):
+            mark_key_exhausted(api_key)
+            valid_keys = [k for k in db_keys if k and k.strip()]
+            if retry_count < len(valid_keys):
+                print(f"[Groq Router] Retrying request with next key (attempt {retry_count + 1})...")
+                yield from groq_chat_stream(model, prompt, chat_history, org_id, retry_count + 1)
+                return
         r.raise_for_status()
         import json
         for line in r.iter_lines():
@@ -159,6 +222,14 @@ def groq_chat_stream(
                     except Exception:
                         pass
     except Exception as e:
+        err_msg = str(e).lower()
+        if "429" in err_msg or "402" in err_msg or "rate limit" in err_msg or "quota" in err_msg or "exhausted" in err_msg:
+            mark_key_exhausted(api_key)
+            valid_keys = [k for k in db_keys if k and k.strip()]
+            if retry_count < len(valid_keys):
+                print(f"[Groq Router] Retrying request on exception with next key (attempt {retry_count + 1})...")
+                yield from groq_chat_stream(model, prompt, chat_history, org_id, retry_count + 1)
+                return
         yield f"[Groq error: {e}]"
 
 
@@ -167,12 +238,21 @@ def gemini_chat_stream(
     prompt: str,
     chat_history: Optional[list] = None,
     org_id: str = "default",
+    retry_count: int = 0,
 ) -> Generator[str, None, None]:
     """Streaming Gemini completions using Google Generative Language REST API."""
     from engine_v4 import db
     org_data = db.get_org_config(org_id) or {}
     db_cfg = org_data.get("config", {})
-    api_key = db_cfg.get("geminiApiKey") or CFG.gemini_api_key
+
+    # Retrieve all keys
+    db_keys = db_cfg.get("geminiApiKeys") or []
+    if not isinstance(db_keys, list):
+        db_keys = [db_keys]
+    if db_cfg.get("geminiApiKey"):
+        db_keys.insert(0, db_cfg.get("geminiApiKey"))
+
+    api_key = get_next_key(org_id, "gemini", db_keys, CFG.gemini_api_key)
 
     if not api_key:
         yield "[Gemini API key not set. Please configure it in settings.]"
@@ -199,6 +279,14 @@ def gemini_chat_stream(
 
     try:
         r = requests.post(url, json=payload, headers=headers, stream=True, timeout=60)
+        # Check for exhaustion error codes
+        if r.status_code in (429, 402, 403) or (r.status_code != 200 and ("rate limit" in r.text.lower() or "quota" in r.text.lower() or "exhausted" in r.text.lower())):
+            mark_key_exhausted(api_key)
+            valid_keys = [k for k in db_keys if k and k.strip()]
+            if retry_count < len(valid_keys):
+                print(f"[Gemini Router] Retrying request with next key (attempt {retry_count + 1})...")
+                yield from gemini_chat_stream(model, prompt, chat_history, org_id, retry_count + 1)
+                return
         r.raise_for_status()
         import json
         buffer = ""
@@ -232,6 +320,14 @@ def gemini_chat_stream(
                     except Exception:
                         pass
     except Exception as e:
+        err_msg = str(e).lower()
+        if "429" in err_msg or "402" in err_msg or "rate limit" in err_msg or "quota" in err_msg or "exhausted" in err_msg:
+            mark_key_exhausted(api_key)
+            valid_keys = [k for k in db_keys if k and k.strip()]
+            if retry_count < len(valid_keys):
+                print(f"[Gemini Router] Retrying request on exception with next key (attempt {retry_count + 1})...")
+                yield from gemini_chat_stream(model, prompt, chat_history, org_id, retry_count + 1)
+                return
         yield f"[Gemini error: {e}]"
 
 

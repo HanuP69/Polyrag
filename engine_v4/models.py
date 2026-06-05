@@ -44,15 +44,25 @@ class Embedder:
         )
         return vecs.astype(np.float32)
 
-    def embed_gemini(self, texts: List[str], org_id: str = "default") -> np.ndarray:
+    def embed_gemini(self, texts: List[str], org_id: str = "default", retry_count: int = 0) -> np.ndarray:
         from engine_v4 import db
+        from engine_v4.ollama import get_next_key, mark_key_exhausted
+        import requests
+
         org_data = db.get_org_config(org_id) or {}
         db_cfg = org_data.get("config", {})
-        api_key = db_cfg.get("geminiApiKey") or CFG.gemini_api_key
+
+        # Retrieve all keys
+        db_keys = db_cfg.get("geminiApiKeys") or []
+        if not isinstance(db_keys, list):
+            db_keys = [db_keys]
+        if db_cfg.get("geminiApiKey"):
+            db_keys.insert(0, db_cfg.get("geminiApiKey"))
+
+        api_key = get_next_key(org_id, "gemini", db_keys, CFG.gemini_api_key)
         if not api_key:
             raise ValueError("Gemini API key not set in configuration or organization settings.")
-        
-        import requests
+
         url = f"https://generativelanguage.googleapis.com/v1beta/models/text-embedding-004:batchEmbedContents?key={api_key}"
         headers = {"Content-Type": "application/json"}
         
@@ -66,19 +76,37 @@ class Embedder:
             })
         
         payload = {"requests": requests_list}
-        r = requests.post(url, json=payload, headers=headers, timeout=60)
-        r.raise_for_status()
-        
-        embeddings = []
-        for emb in r.json().get("embeddings", []):
-            vector = emb.get("values", [])
-            # Pad from 768 to 1024 dimensions with zeros
-            if len(vector) < 1024:
-                vector = vector + [0.0] * (1024 - len(vector))
-            elif len(vector) > 1024:
-                vector = vector[:1024]
-            embeddings.append(vector)
-        return np.array(embeddings, dtype=np.float32)
+        try:
+            r = requests.post(url, json=payload, headers=headers, timeout=60)
+            
+            # Check for exhaustion error codes
+            if r.status_code in (429, 402, 403) or (r.status_code != 200 and ("rate limit" in r.text.lower() or "quota" in r.text.lower() or "exhausted" in r.text.lower())):
+                mark_key_exhausted(api_key)
+                valid_keys = [k for k in db_keys if k and k.strip()]
+                if retry_count < len(valid_keys):
+                    print(f"[Gemini Embed Router] Retrying request with next key (attempt {retry_count + 1})...")
+                    return self.embed_gemini(texts, org_id, retry_count + 1)
+            r.raise_for_status()
+            
+            embeddings = []
+            for emb in r.json().get("embeddings", []):
+                vector = emb.get("values", [])
+                # Pad from 768 to 1024 dimensions with zeros
+                if len(vector) < 1024:
+                    vector = vector + [0.0] * (1024 - len(vector))
+                elif len(vector) > 1024:
+                    vector = vector[:1024]
+                embeddings.append(vector)
+            return np.array(embeddings, dtype=np.float32)
+        except Exception as e:
+            err_msg = str(e).lower()
+            if "429" in err_msg or "402" in err_msg or "rate limit" in err_msg or "quota" in err_msg or "exhausted" in err_msg:
+                mark_key_exhausted(api_key)
+                valid_keys = [k for k in db_keys if k and k.strip()]
+                if retry_count < len(valid_keys):
+                    print(f"[Gemini Embed Router] Retrying request on exception with next key (attempt {retry_count + 1})...")
+                    return self.embed_gemini(texts, org_id, retry_count + 1)
+            raise
 
     def to_cpu(self):
         """Move model to CPU to free VRAM."""
