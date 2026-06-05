@@ -67,18 +67,73 @@ def should_skip_image(ocr_text: str, caption: str) -> bool:
     return False
 
 
-def caption_image_pil(img) -> str:
-    """Caption via llava through Ollama. img is a PIL Image."""
+def caption_image_gemini(b64_str: str, org_id: str = "default") -> str:
+    """Caption via Gemini model. b64_str is base64 representation of image."""
+    from engine_v4 import db
+    import requests
+    
+    org_data = db.get_org_config(org_id) or {}
+    db_cfg = org_data.get("config", {})
+    
+    # Check custom keys first, then fallback
+    from engine_v4.ollama import get_next_key
+    db_keys = db_cfg.get("geminiApiKeys") or []
+    if not isinstance(db_keys, list):
+        db_keys = [db_keys]
+    if db_cfg.get("geminiApiKey"):
+        db_keys.insert(0, db_cfg.get("geminiApiKey"))
+        
+    api_key = get_next_key(org_id, "gemini", db_keys, CFG.gemini_api_key)
+    if not api_key:
+        print("[Caption Gemini] Warning: Gemini API key not set. Skipping captioning.")
+        return ""
+
+    # Strip prefix if any
+    if b64_str.startswith("data:"):
+        b64_str = b64_str.split(",", 1)[1]
+
+    # Call Gemini REST API
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{CFG.gemini_model}:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": CAPTION_PROMPT},
+                    {
+                        "inlineData": {
+                            "mimeType": "image/png",
+                            "data": b64_str
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+    
+    try:
+        r = requests.post(url, json=payload, headers=headers, timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        caption = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        return clean_text(caption)
+    except Exception as e:
+        print(f"[Caption Gemini] API call failed: {e}")
+        return ""
+
+
+def caption_image_pil(img, org_id: str = "default") -> str:
+    """Caption via Gemini. img is a PIL Image."""
     img = img.convert("RGB")
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     b64 = base64.b64encode(buf.getvalue()).decode()
-    return ollama_generate(CFG.caption_model, CAPTION_PROMPT, images_b64=[b64], timeout=60)
+    return caption_image_gemini(b64, org_id)
 
 
-def caption_image_b64(b64_str: str) -> str:
+def caption_image_b64(b64_str: str, org_id: str = "default") -> str:
     """Caption from base64 string (used during server ingestion)."""
-    return ollama_generate(CFG.caption_model, CAPTION_PROMPT, images_b64=[b64_str], timeout=60)
+    return caption_image_gemini(b64_str, org_id)
 
 
 # ── CHUNK TEXT (from v4 notebook) ────────────────────────────────────────────
@@ -174,7 +229,7 @@ def chunk_image(
 
     caption = ""
     try:
-        caption = caption_image_pil(img)
+        caption = caption_image_pil(img, org_id)
     except Exception:
         pass
 

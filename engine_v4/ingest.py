@@ -99,10 +99,10 @@ def extract_pdf_chunks(
                 # Get nearby text for context
                 nearby = text_content[:400] if text_content else ""
 
-                # Caption via Ollama llava
+                # Caption via Gemini
                 caption = ""
                 try:
-                    caption = caption_image_b64(b64)
+                    caption = caption_image_b64(b64, org_id)
                 except Exception:
                     pass
 
