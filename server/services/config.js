@@ -40,8 +40,8 @@ const LOCAL_DEV = process.env.LOCAL_DEV !== undefined
   ? process.env.LOCAL_DEV !== "false"
   : getSetting("auth.local_dev", true);
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL || getSetting("auth.supabase_url", "");
-const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || getSetting("auth.supabase_anon_key", "");
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || getSetting("auth.supabase_url", "");
+const SUPABASE_KEY = process.env.VITE_SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || getSetting("auth.supabase_anon_key", "");
 
 const NUM_WORKERS = process.env.NUM_WORKERS !== undefined
   ? parseInt(process.env.NUM_WORKERS)
