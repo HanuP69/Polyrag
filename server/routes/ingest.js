@@ -5,7 +5,7 @@ const path = require("path");
 const fs = require("fs");
 const engine = require("../services/engine");
 
-const UPLOAD_DIR = path.join(__dirname, "..", "..", "data", "uploads");
+const UPLOAD_DIR = path.join(__dirname, "..", "uploads");
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -44,12 +44,14 @@ router.post("/api/ingest", upload.single("file"), async (req, res) => {
 
   try {
     const result = await engine.ingestFile(req.file.path, orgId, models);
+    fs.unlink(req.file.path, () => {}); // cleanup temp file
     res.json({
       status: result.status,
       file_id: result.file_id,
       filename: req.file.originalname,
     });
   } catch (err) {
+    fs.unlink(req.file.path, () => {}); // cleanup temp file
     console.error("[Ingest] Failed:", err.message);
     res.status(500).json({ error: err.message });
   }

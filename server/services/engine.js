@@ -16,7 +16,6 @@ const keepAliveAgent = new http.Agent({
 const client = axios.create({
   baseURL: ENGINE_URL,
   timeout: TIMEOUT,
-  headers: { "Content-Type": "application/json" },
   httpAgent: keepAliveAgent,
 });
 
