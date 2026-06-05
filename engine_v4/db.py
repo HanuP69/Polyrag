@@ -43,20 +43,47 @@ class PooledConnectionWrapper:
                 self._conn.commit()
             self.close()
 
+class DirectConnectionWrapper:
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def close(self):
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._conn is not None:
+            if exc_type is not None:
+                self._conn.rollback()
+            else:
+                self._conn.commit()
+            self.close()
+
 def get_conn():
     global _pool
     if _pool is None:
         try:
-            _pool = ThreadedConnectionPool(2, 20, CFG.pg_conn)
+            # Keep pool limits conservative for free tier poolers (limit 15)
+            _pool = ThreadedConnectionPool(1, 4, CFG.pg_conn)
             print("[DB] Threaded connection pool initialized successfully.")
         except Exception as e:
             print(f"[DB] Error initializing connection pool: {e}")
-            return psycopg2.connect(CFG.pg_conn)
+            return DirectConnectionWrapper(psycopg2.connect(CFG.pg_conn))
     try:
         return PooledConnectionWrapper(_pool, _pool.getconn())
     except Exception as e:
         print(f"[DB] Connection pool acquisition failed: {e}. Falling back to direct connection.")
-        return psycopg2.connect(CFG.pg_conn)
+        return DirectConnectionWrapper(psycopg2.connect(CFG.pg_conn))
 
 
 # ── Schema ───────────────────────────────────────────────────────────────────
