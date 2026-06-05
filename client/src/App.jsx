@@ -365,14 +365,14 @@ function MainApp({ session }) {
   const [dbHealth, setDbHealth] = useState(null);
   const [githubUrl, setGithubUrl] = useState("");
   const [dragging, setDragging] = useState(false);
-  const [model, setModel] = useState("llama3.2:3b");
+  const [model, setModel] = useState("gemini-2.0-flash");
   const [modelRegistry, setModelRegistry] = useState({});
   const [showSettings, setShowSettings] = useState(false);
   const [config, setConfig] = useState({
     useLlmText: false,
     useLlmCode: false,
     imageModel: "llava:7b",
-    tableModel: "llama3.2:3b",
+    tableModel: "gemini-2.0-flash",
     enablePlanner: false,
     groqApiKey: "",
     geminiApiKey: "",
@@ -578,6 +578,32 @@ function MainApp({ session }) {
     e?.preventDefault();
     if (!input.trim() || loading) return;
 
+    // API Key availability check
+    const modelInfo = modelRegistry[model];
+    const modelType = modelInfo?.type || (
+      model.includes("gemini") ? "gemini" :
+      (model.includes("groq") || ["llama-3.3-70b-specdec", "gemma2-9b-it", "mixtral-8x7b-32768"].includes(model)) ? "groq" :
+      "ollama"
+    );
+
+    if (modelType === "groq") {
+      const hasGroqKey = 
+        (config.groqApiKey && config.groqApiKey.trim() !== "") || 
+        (Array.isArray(config.groqApiKeys) && config.groqApiKeys.some(k => k && k.trim() !== ""));
+      if (!hasGroqKey) {
+        alert("Select kiye gaye model ke liye Groq API Key missing hai. Please settings mein jaakar key add karein.");
+        return;
+      }
+    } else if (modelType === "gemini") {
+      const hasGeminiKey = 
+        (config.geminiApiKey && config.geminiApiKey.trim() !== "") || 
+        (Array.isArray(config.geminiApiKeys) && config.geminiApiKeys.some(k => k && k.trim() !== ""));
+      if (!hasGeminiKey) {
+        alert("Select kiye gaye model ke liye Gemini API Key missing hai. Please settings mein jaakar key add karein.");
+        return;
+      }
+    }
+
     const userQuery = input.trim();
     setInput("");
     setLoading(true);
@@ -673,7 +699,7 @@ function MainApp({ session }) {
       });
     }
     setLoading(false);
-  }, [input, loading, selectedFileIds, model, messages, currentSessionId, session]);
+  }, [input, loading, selectedFileIds, model, messages, currentSessionId, session, config, modelRegistry]);
 
   const handleFileUpload = useCallback(async (fileList) => {
     for (const file of fileList) {
@@ -2204,6 +2230,7 @@ function MainApp({ session }) {
                         ))
                       ) : (
                         <>
+                          <option value="gemini-2.0-flash">Gemini 2.0 Flash (Gemini)</option>
                           <option value="llama3.2:3b">Llama 3.2 (Local)</option>
                           <option value="gemma3:4b">Gemma 3 4B (Local)</option>
                           <option value="llama-3.3-70b-specdec">Llama 3.3 70B (Groq)</option>
