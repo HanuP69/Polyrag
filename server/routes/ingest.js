@@ -137,33 +137,32 @@ router.get("/api/models", async (req, res) => {
 
 // DB / Docker health check
 router.get("/api/health/db", async (req, res) => {
-  const { exec } = require("child_process");
   const ENGINE_URL = process.env.ENGINE_URL || "http://localhost:8000";
 
-  // Check Python engine
   let engineUp = false;
+  let dbUp = false;
+
+  // Check Python engine base health
   try {
     const axios = require("axios");
     const resp = await axios.get(`${ENGINE_URL}/health`, { timeout: 3000 });
     engineUp = resp.status === 200;
   } catch {}
 
-  // Check Docker postgres container
-  const checkDocker = () => new Promise((resolve) => {
-    exec("docker ps --filter name=postgres --filter name=polyrag --filter status=running --format \"{{.Names}}\"", (err, stdout) => {
-      if (err) return resolve({ running: false, error: err.message });
-      const containers = stdout.trim().split("\n").filter(Boolean);
-      resolve({ running: containers.length > 0, containers });
-    });
-  });
-
-  const dockerResult = await checkDocker();
+  // Check Python engine database connection status
+  try {
+    const axios = require("axios");
+    const resp = await axios.get(`${ENGINE_URL}/health/pipeline`, { timeout: 3000 });
+    if (resp.status === 200 && resp.data.components && resp.data.components.database) {
+      dbUp = true;
+    }
+  } catch {}
 
   res.json({
     engine: engineUp ? "up" : "down",
-    postgres_docker: dockerResult.running ? "up" : "down",
-    postgres_containers: dockerResult.containers || [],
-    docker_error: dockerResult.error || null,
+    postgres_docker: dbUp ? "up" : "down",
+    postgres_containers: dbUp ? ["supabase"] : [],
+    docker_error: null,
   });
 });
 

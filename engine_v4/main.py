@@ -130,12 +130,24 @@ async def health():
 
 @app.get("/health/pipeline")
 async def pipeline_health():
+    db_ok = False
+    try:
+        from engine_v4 import db
+        conn = db.get_conn()
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1")
+            cur.fetchone()
+        db_ok = True
+    except Exception as e:
+        print(f"[Health] Database connectivity check failed: {e}")
+        db_ok = False
+
     return {
-        "status": "healthy",
+        "status": "healthy" if db_ok else "unhealthy",
         "components": {
             "embedder": embedder.loaded,
             "reranker": reranker.loaded,
-            "database": True,
+            "database": db_ok,
         },
     }
 
