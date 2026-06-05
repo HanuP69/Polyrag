@@ -364,7 +364,7 @@ function MainApp({ session }) {
   const [dbHealth, setDbHealth] = useState(null);
   const [githubUrl, setGithubUrl] = useState("");
   const [dragging, setDragging] = useState(false);
-  const [model, setModel] = useState("gemini-2.5-flash");
+  const [model, setModel] = useState("llama3.2:3b");
   const [modelRegistry, setModelRegistry] = useState({});
   const [showSettings, setShowSettings] = useState(false);
   const [config, setConfig] = useState({
