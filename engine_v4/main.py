@@ -319,13 +319,14 @@ async def ingest_async(
     _ingestion_status[file_id] = {"status": "processing", "progress": 0, "file_id": file_id}
 
     def run_ingest():
-        def progress_callback(pct: int, stage: str):
+        def progress_callback(pct: int, stage: str, detail: str = None):
             _ingestion_status[file_id] = {
                 "status": stage,
                 "progress": pct,
                 "file_id": file_id,
                 "id": file_id,
                 "stage": stage,
+                "detail": detail,
             }
 
         try:

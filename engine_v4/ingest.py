@@ -165,9 +165,9 @@ def ingest_file(file_path: str, file_id: str, org_id: str = "default", progress_
     """
     import torch, gc
 
-    def _progress(pct: int, stage: str):
+    def _progress(pct: int, stage: str, detail: str = None):
         if progress_callback:
-            progress_callback(pct, stage)
+            progress_callback(pct, stage, detail)
 
     ext = os.path.splitext(file_path)[1].lower()
 
@@ -200,22 +200,24 @@ def ingest_file(file_path: str, file_id: str, org_id: str = "default", progress_
         gc.collect()
 
     # 3. Embed
-    _progress(45, "embedding")
+    _progress(45, "embedding", "Preparing embeddings")
     print(f"[Ingest] Embedding {len(all_chunks)} chunks...")
     embedder.to_gpu()
-    texts = [ch.content for ch in all_chunks]
     BATCH = 64
     all_vecs = []
-    total_batches = max(1, (len(texts) + BATCH - 1) // BATCH)
-    for batch_idx, start in enumerate(range(0, len(texts), BATCH)):
-        batch = texts[start : start + BATCH]
+    total_batches = max(1, (len(all_chunks) + BATCH - 1) // BATCH)
+    for batch_idx, start in enumerate(range(0, len(all_chunks), BATCH)):
+        batch_chunks = all_chunks[start : start + BATCH]
+        batch = [ch.content for ch in batch_chunks]
         vecs = embedder.embed(batch, org_id)
         all_vecs.append(vecs)
+        batch_modalities = sorted(list(set(ch.modality for ch in batch_chunks if ch.modality)))
+        detail = f"Embedding {', '.join(batch_modalities)} chunks" if batch_modalities else "Embedding chunks"
         # Progress from 45% to 70% during embedding
         embed_progress = 45 + int((batch_idx + 1) / total_batches * 25)
-        _progress(min(embed_progress, 70), "embedding")
+        _progress(min(embed_progress, 70), "embedding", detail)
         if (start // BATCH) % 5 == 0:
-            print(f"  {start + len(batch)}/{len(texts)} embedded")
+            print(f"  {start + len(batch)}/{len(all_chunks)} embedded")
 
     import numpy as np
     vecs = np.vstack(all_vecs)

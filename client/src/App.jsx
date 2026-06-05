@@ -17,6 +17,9 @@ const MarkdownRenderer = ({ content, sources }) => {
   let resolvedContent = content;
   if (typeof resolvedContent === "string") {
     resolvedContent = resolvedContent.replace(/\\n/g, "\n");
+    // Strip code blocks around markdown images
+    resolvedContent = resolvedContent.replace(/```markdown\s*(!?\[.*?\]\(.*?\))\s*```/gi, "$1");
+    resolvedContent = resolvedContent.replace(/```\s*(!?\[.*?\]\(.*?\))\s*```/gi, "$1");
   }
   if (sources && sources.length > 0) {
     // Replace short references like source_1 or /api/uploads/source_1 or source_N
@@ -714,6 +717,7 @@ function MainApp({ session }) {
             const status = await getIngestStatus(fileId);
             setFiles(prev => prev.map(f => f.id === fileId ? {
               ...f, status: status.status, progress: status.progress || 0,
+              detail: status.detail || null,
               experts: status.experts || null, expert_names: status.expert_names || null,
               total_chunks: status.total_chunks || null, experts_used: status.experts_used || null,
             } : f));
@@ -743,6 +747,7 @@ function MainApp({ session }) {
           const status = await getIngestStatus(fileId);
           setFiles(prev => prev.map(f => f.id === fileId ? {
             ...f, status: status.status, progress: status.progress || 0,
+            detail: status.detail || null,
             experts: status.experts || null, expert_names: status.expert_names || null,
             total_chunks: status.total_chunks || null, experts_used: status.experts_used || null,
           } : f));
@@ -2133,7 +2138,8 @@ function MainApp({ session }) {
                                          : file.status === "storing" || file.status === "indexing" ? "var(--accent-emerald)"
                                          : "var(--accent-amber)"
                                   }}>
-                                    {file.status === "parsing" ? "⟳ Parsing document"
+                                    {file.detail ? `⟳ ${file.detail}`
+                                     : file.status === "parsing" ? "⟳ Parsing document"
                                      : file.status === "captioning" ? "⟳ Captioning images"
                                      : file.status === "preparing" ? "⟳ Preparing pipeline"
                                      : file.status === "embedding" ? "⟳ Embedding chunks"
